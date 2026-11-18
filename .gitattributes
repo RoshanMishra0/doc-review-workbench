@@ -1,0 +1,3 @@
+# Sample fixtures must stay byte-for-byte identical on every checkout.
+*.pdf binary
+*.xlsx binary

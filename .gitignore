@@ -1,0 +1,19 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local data: SQLite database and stored uploads
+backend/data/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

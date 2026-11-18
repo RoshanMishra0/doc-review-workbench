@@ -1,0 +1,6 @@
+# Tests and the sample-data generator
+-r requirements.txt
+pytest==9.2.0
+httpx==0.28.1
+fpdf2==2.9.0
+pillow==13.0.0

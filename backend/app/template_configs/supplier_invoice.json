@@ -1,0 +1,161 @@
+{
+  "id": "supplier_invoice",
+  "version": 1,
+  "name": "Supplier invoices vs purchase register",
+  "description": "Reads invoice header fields from supplier invoices, checks them against the rules below, and compares each invoice with the business's purchase register.",
+  "synthetic_note": "Checks cover completeness, readable dates, valid amounts, arithmetic and register agreement only. They do not establish tax compliance, payment status, fraud or accounting correctness.",
+  "roles": {
+    "invoice": {
+      "label": "Invoice",
+      "plural": "Supplier invoices",
+      "description": "Supplier invoices: PDF in a supported layout, or a CSV/XLSX invoice listing.",
+      "accepts": ["pdf", "csv", "xlsx"]
+    },
+    "reference": {
+      "label": "Register row",
+      "plural": "Purchase register",
+      "description": "The business's purchase register as CSV or XLSX. Used as the reference for matching.",
+      "accepts": ["csv", "xlsx"]
+    }
+  },
+  "fields": [
+    {
+      "name": "supplier_name",
+      "label": "Supplier name",
+      "type": "party",
+      "required": true,
+      "aliases": ["supplier", "vendor", "vendor name", "seller", "supplier party", "party name", "creditor"]
+    },
+    {
+      "name": "invoice_number",
+      "label": "Invoice number",
+      "type": "identifier",
+      "required": true,
+      "aliases": ["invoice no", "invoice num", "inv no", "inv number", "bill no", "bill number",
+                  "document number", "document no", "doc no", "supplier invoice ref", "supplier invoice no",
+                  "supplier invoice number", "invoice ref", "invoice reference"]
+    },
+    {
+      "name": "invoice_date",
+      "label": "Invoice date",
+      "type": "date",
+      "required": true,
+      "aliases": ["inv date", "bill date", "document date", "doc date", "date", "supplier invoice date"]
+    },
+    {
+      "name": "currency",
+      "label": "Currency",
+      "type": "currency",
+      "required": true,
+      "aliases": ["ccy", "curr", "currency code", "cur"]
+    },
+    {
+      "name": "net_amount",
+      "label": "Net amount",
+      "type": "money",
+      "required": true,
+      "aliases": ["net", "net value", "taxable value", "taxable amount", "amount excl tax", "amount before tax",
+                  "subtotal", "sub total", "basic value", "amount ex tax"]
+    },
+    {
+      "name": "tax_amount",
+      "label": "Tax amount",
+      "type": "money",
+      "required": true,
+      "aliases": ["tax", "gst", "gst amount", "vat", "vat amount", "tax value", "total tax", "tax total"]
+    },
+    {
+      "name": "total_amount",
+      "label": "Total amount",
+      "type": "money",
+      "required": true,
+      "aliases": ["total", "gross", "gross amount", "invoice total", "bill total", "bill amount",
+                  "amount incl tax", "amount payable", "grand total", "amount due"]
+    }
+  ],
+  "dates": {
+    "default_order": "DMY"
+  },
+  "currency": {
+    "default": null,
+    "allowed": ["INR", "USD", "EUR", "GBP"],
+    "symbols": {"INR": "₹", "USD": "US$", "EUR": "€", "GBP": "£"},
+    "markers": {
+      "₹": "INR", "RS.": "INR", "RS": "INR", "INR": "INR",
+      "US$": "USD", "USD": "USD",
+      "€": "EUR", "EUR": "EUR",
+      "£": "GBP", "GBP": "GBP"
+    },
+    "minor_units": {"INR": 2, "USD": 2, "EUR": 2, "GBP": 2},
+    "grouping": {"INR": "indian"}
+  },
+  "party_normalization": {
+    "casefold": true,
+    "replace_ampersand": true,
+    "strip_punctuation": true,
+    "legal_suffixes": ["private limited", "pvt ltd", "pvt", "private", "limited", "ltd", "llp", "llc",
+                       "inc", "incorporated", "co", "company", "corp", "corporation", "plc"],
+    "aliases": {
+      "Sablefin Electricals": ["Sablefin Electrical Works"]
+    }
+  },
+  "validation_rules": [
+    {
+      "id": "required_fields",
+      "type": "required",
+      "label": "Required values are present",
+      "fields": ["supplier_name", "invoice_number", "invoice_date", "currency", "net_amount", "tax_amount", "total_amount"]
+    },
+    {
+      "id": "date_readable",
+      "type": "date_valid",
+      "label": "Invoice date can be read unambiguously with the source's date format",
+      "fields": ["invoice_date"]
+    },
+    {
+      "id": "amounts_valid",
+      "type": "money_valid",
+      "label": "Amounts are valid, non-negative and use the currency's decimal places",
+      "fields": ["net_amount", "tax_amount", "total_amount"],
+      "allow_negative": false
+    },
+    {
+      "id": "net_plus_tax_equals_total",
+      "type": "sum_equals",
+      "label": "Net amount plus tax amount equals total amount",
+      "addends": ["net_amount", "tax_amount"],
+      "total": "total_amount",
+      "tolerance": "0.01"
+    },
+    {
+      "id": "currency_supported",
+      "type": "currency_allowed",
+      "label": "Currency is present and in the configured list",
+      "field": "currency"
+    },
+    {
+      "id": "currency_consistent",
+      "type": "currency_consistency",
+      "label": "Amounts printed with a currency use the record's currency",
+      "currency_field": "currency",
+      "amount_fields": ["net_amount", "tax_amount", "total_amount"]
+    },
+    {
+      "id": "duplicate_invoice",
+      "type": "duplicate_identity",
+      "label": "No other uploaded invoice has the same supplier, invoice number and currency",
+      "fields": ["supplier_name", "invoice_number", "currency"],
+      "applies_to": ["invoice"]
+    }
+  ],
+  "matching": {
+    "identity_fields": ["supplier_name", "invoice_number", "currency"],
+    "compare": [
+      {"field": "invoice_date"},
+      {"field": "net_amount", "tolerance": "0.01"},
+      {"field": "tax_amount", "tolerance": "0.01"},
+      {"field": "total_amount", "tolerance": "0.01"}
+    ]
+  },
+  "pdf_layouts": ["classic_tax_invoice", "modern_invoice", "billing_statement"]
+}

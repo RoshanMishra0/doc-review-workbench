@@ -1,0 +1,105 @@
+{
+  "note": "Synthetic demo data. All companies and figures are fictional.",
+  "samples": [
+    {
+      "id": "harbor_lane",
+      "name": "Harbor Lane Supplies (fictional)",
+      "template_id": "supplier_invoice",
+      "description": "18 supplier invoice PDFs in three layouts (including a duplicate, an unsupported layout, an image-only scan and a damaged file) and an XLSX purchase register with a notes sheet and a title row.",
+      "files": [
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/apex_INV-00123.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/bluecrest_BOS-2025-0042.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/kestrel_000457.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/corvane_CS-7781.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/sablefin_SE-2025-118.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/quillmark_QS-0091.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/quillmark_QS-0091_resent.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/tarnwood_TP-5520.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/velanto_VFS-3307.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/orchid_OLC-1450.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/apex_INV-00131.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/bluecrest_BOS-2025-0057.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/kestrel_000462.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/tarnwood_TP-5531.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/velanto_VFS-3312.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/lumenridge_quotation_Q-219.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/scan_marlow_MSU-88120.pdf"
+        },
+        {
+          "role": "invoice",
+          "path": "harbor_lane/invoices/invoice_damaged.pdf"
+        },
+        {
+          "role": "reference",
+          "path": "harbor_lane/purchase_register.xlsx"
+        }
+      ]
+    },
+    {
+      "id": "meridian",
+      "name": "Meridian Workshop Services (fictional)",
+      "template_id": "supplier_invoice",
+      "description": "A CSV invoice listing and a CSV purchase register with different column headings. The register uses month-first dates and two headings that are not in the aliases, so it stops at column mapping.",
+      "files": [
+        {
+          "role": "invoice",
+          "path": "meridian/supplier_invoice_listing.csv"
+        },
+        {
+          "role": "reference",
+          "path": "meridian/purchase_register.csv"
+        }
+      ]
+    }
+  ]
+}

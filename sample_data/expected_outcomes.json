@@ -1,0 +1,316 @@
+{
+  "note": "Expected pipeline results for the synthetic data. Used by tests only; the app never reads this.",
+  "harbor_lane": {
+    "invoices": {
+      "apex_INV-00123.pdf": {
+        "expected_match": "matched",
+        "expected_issues": [],
+        "scenario": "Clean match. Register spells the supplier 'Private Limited'; documented suffix normalization."
+      },
+      "bluecrest_BOS-2025-0042.pdf": {
+        "expected_match": "matched",
+        "expected_issues": [],
+        "scenario": "Clean match."
+      },
+      "kestrel_000457.pdf": {
+        "expected_match": "matched",
+        "expected_issues": [],
+        "scenario": "Clean match. Invoice number is all digits with leading zeros."
+      },
+      "corvane_CS-7781.pdf": {
+        "expected_match": "matched",
+        "expected_issues": [],
+        "scenario": "Clean match in USD."
+      },
+      "sablefin_SE-2025-118.pdf": {
+        "expected_match": "matched",
+        "expected_issues": [],
+        "scenario": "Clean match through an explicit supplier alias (register says 'Sablefin Electrical Works')."
+      },
+      "quillmark_QS-0091.pdf": {
+        "expected_match": "ambiguous",
+        "expected_issues": [
+          "duplicate"
+        ],
+        "scenario": "Duplicate: the supplier sent the same invoice twice."
+      },
+      "quillmark_QS-0091_resent.pdf": {
+        "expected_match": "ambiguous",
+        "expected_issues": [
+          "duplicate"
+        ],
+        "scenario": "Duplicate copy of quillmark_QS-0091.pdf."
+      },
+      "tarnwood_TP-5520.pdf": {
+        "expected_match": "invalid",
+        "expected_issues": [
+          "missing_required"
+        ],
+        "scenario": "Missing required field: the tax line is absent. Correct tax to 2,700.00 and it matches."
+      },
+      "velanto_VFS-3307.pdf": {
+        "expected_match": "invalid",
+        "expected_issues": [
+          "invalid_date"
+        ],
+        "scenario": "Invalid date: 31 February does not exist. The register says 28/02/2025."
+      },
+      "orchid_OLC-1450.pdf": {
+        "expected_match": "matched",
+        "expected_issues": [
+          "arithmetic"
+        ],
+        "scenario": "Arithmetic inconsistency: 9,500.00 + 475.00 is 9,975.00, not 10,075.00. The register repeats the same figures, so matching reports Matched while the arithmetic check still fails."
+      },
+      "apex_INV-00131.pdf": {
+        "expected_match": "mismatched",
+        "expected_issues": [
+          "mismatch"
+        ],
+        "scenario": "Amount mismatch: invoice total 12,500.00, register total 12,050.00."
+      },
+      "bluecrest_BOS-2025-0057.pdf": {
+        "expected_match": "missing_from_reference",
+        "expected_issues": [
+          "missing_from_reference"
+        ],
+        "scenario": "Invoice absent from the register."
+      },
+      "kestrel_000462.pdf": {
+        "expected_match": "missing_from_reference",
+        "expected_issues": [
+          "missing_from_reference"
+        ],
+        "scenario": "Equal amounts, different invoices: same 23,100.00 as 000457 and as register row 000463, but no register row has invoice number 000462, so nothing is matched on amount."
+      },
+      "tarnwood_TP-5531.pdf": {
+        "expected_match": "ambiguous",
+        "expected_issues": [
+          "ambiguous"
+        ],
+        "scenario": "Multiple possible matches: the register has TP-5531 twice."
+      },
+      "velanto_VFS-3312.pdf": {
+        "expected_match": "matched",
+        "expected_issues": [],
+        "scenario": "Clean match from the billing statement layout."
+      }
+    },
+    "rejected_files": {
+      "lumenridge_quotation_Q-219.pdf": {
+        "reason": "unsupported_layout",
+        "scenario": "Readable text, but a quotation layout that no parser supports."
+      },
+      "scan_marlow_MSU-88120.pdf": {
+        "reason": "image_only",
+        "scenario": "Image-only scan with no text layer. OCR is not supported, so the register row MSU-88120 has no uploaded invoice."
+      },
+      "invoice_damaged.pdf": {
+        "reason": "damaged",
+        "scenario": "Damaged file: PDF header followed by broken content."
+      }
+    },
+    "register_rows": [
+      {
+        "row": 4,
+        "invoice_number": "INV-00123",
+        "supplier": "Apex Industrial Components Private Limited",
+        "expected_match": "matched"
+      },
+      {
+        "row": 5,
+        "invoice_number": "BOS/2025/0042",
+        "supplier": "Bluecrest Office Solutions LLP",
+        "expected_match": "matched"
+      },
+      {
+        "row": 6,
+        "invoice_number": "000457",
+        "supplier": "Kestrel Logistics Services",
+        "expected_match": "matched"
+      },
+      {
+        "row": 7,
+        "invoice_number": "CS-7781",
+        "supplier": "Corvane Software Ltd",
+        "expected_match": "matched"
+      },
+      {
+        "row": 8,
+        "invoice_number": "SE-2025-118",
+        "supplier": "Sablefin Electrical Works",
+        "expected_match": "matched"
+      },
+      {
+        "row": 9,
+        "invoice_number": "QS-0091",
+        "supplier": "Quillmark Stationers",
+        "expected_match": "ambiguous"
+      },
+      {
+        "row": 10,
+        "invoice_number": "TP-5520",
+        "supplier": "Tarnwood Packaging Co.",
+        "expected_match": "partner_invalid"
+      },
+      {
+        "row": 11,
+        "invoice_number": "VFS-3307",
+        "supplier": "Velanto Facility Services",
+        "expected_match": "partner_invalid"
+      },
+      {
+        "row": 12,
+        "invoice_number": "OLC-1450",
+        "supplier": "Orchid Lane Caterers",
+        "expected_match": "matched"
+      },
+      {
+        "row": 13,
+        "invoice_number": "INV-00131",
+        "supplier": "Apex Industrial Components Pvt Ltd",
+        "expected_match": "mismatched"
+      },
+      {
+        "row": 14,
+        "invoice_number": "000463",
+        "supplier": "Kestrel Logistics Services",
+        "expected_match": "no_invoice"
+      },
+      {
+        "row": 15,
+        "invoice_number": "TP-5531",
+        "supplier": "Tarnwood Packaging Co",
+        "expected_match": "ambiguous"
+      },
+      {
+        "row": 16,
+        "invoice_number": "TP-5531",
+        "supplier": "Tarnwood Packaging Co.",
+        "expected_match": "ambiguous"
+      },
+      {
+        "row": 17,
+        "invoice_number": "VFS-3312",
+        "supplier": "Velanto Facility Services",
+        "expected_match": "matched"
+      },
+      {
+        "row": 18,
+        "invoice_number": "MSU-88120",
+        "supplier": "Marlow Street Utilities",
+        "expected_match": "no_invoice"
+      }
+    ]
+  },
+  "meridian": {
+    "invoices": [
+      {
+        "row": 2,
+        "invoice_number": "FT/24-25/0310",
+        "expected_match": "matched",
+        "expected_issues": []
+      },
+      {
+        "row": 3,
+        "invoice_number": "FT/24-25/0322",
+        "expected_match": "matched",
+        "expected_issues": []
+      },
+      {
+        "row": 4,
+        "invoice_number": "0004471",
+        "expected_match": "matched",
+        "expected_issues": []
+      },
+      {
+        "row": 5,
+        "invoice_number": "0004480",
+        "expected_match": "mismatched",
+        "expected_issues": [
+          "mismatch"
+        ]
+      },
+      {
+        "row": 6,
+        "invoice_number": "PSG-221",
+        "expected_match": "missing_from_reference",
+        "expected_issues": [
+          "missing_from_reference"
+        ]
+      },
+      {
+        "row": 7,
+        "invoice_number": "RC-0098",
+        "expected_match": "invalid",
+        "expected_issues": [
+          "missing_required"
+        ]
+      },
+      {
+        "row": 8,
+        "invoice_number": "TF-5501",
+        "expected_match": "matched",
+        "expected_issues": []
+      },
+      {
+        "row": 9,
+        "invoice_number": "FT/24-25/0331",
+        "expected_match": "matched",
+        "expected_issues": []
+      }
+    ],
+    "register_rows": [
+      {
+        "row": 2,
+        "invoice_number": "FT/24-25/0310",
+        "expected_match": "matched"
+      },
+      {
+        "row": 3,
+        "invoice_number": "FT/24-25/0322",
+        "expected_match": "matched"
+      },
+      {
+        "row": 4,
+        "invoice_number": "0004471",
+        "expected_match": "matched"
+      },
+      {
+        "row": 5,
+        "invoice_number": "0004480",
+        "expected_match": "mismatched"
+      },
+      {
+        "row": 6,
+        "invoice_number": "RC-0098",
+        "expected_match": "no_invoice"
+      },
+      {
+        "row": 7,
+        "invoice_number": "TF-5501",
+        "expected_match": "matched"
+      },
+      {
+        "row": 8,
+        "invoice_number": "FT/24-25/0331",
+        "expected_match": "matched"
+      },
+      {
+        "row": 9,
+        "invoice_number": "HF-7710",
+        "expected_match": "no_invoice"
+      }
+    ],
+    "register_mapping": {
+      "supplier_name": "Party",
+      "invoice_number": "Supplier Invoice Ref",
+      "invoice_date": "Supplier Invoice Date",
+      "currency": "Curr.",
+      "net_amount": "Basic Value",
+      "tax_amount": "Tax Value",
+      "total_amount": "Doc Total"
+    },
+    "register_date_order": "MDY"
+  }
+}
