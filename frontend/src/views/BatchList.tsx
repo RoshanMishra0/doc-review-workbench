@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, EmptyState, ErrorBanner, Modal, Notice, Progress, Spinner, useMeta } from "../components";
+import { Badge, Card, EmptyState, ErrorBanner, Modal, Notice, Progress, Spinner, roleWords, useMeta } from "../components";
 import { dateTime } from "../format";
 import { navigate } from "../router";
 import type { BatchSummary, Sample } from "../types";
@@ -12,6 +12,11 @@ export default function BatchList() {
   const [showNew, setShowNew] = useState(false);
   const [showSamples, setShowSamples] = useState(false);
   const [deleting, setDeleting] = useState<BatchSummary | null>(null);
+
+  const words = (b: BatchSummary) => {
+    const t = meta.templates.find((x) => x.id === b.template_id);
+    return t ? roleWords(t) : { rec: "record", refRow: "reference row" };
+  };
 
   const load = useCallback(() => {
     setError(null);
@@ -59,10 +64,10 @@ export default function BatchList() {
                 <th>Batch</th>
                 <th>Created</th>
                 <th>Files</th>
-                <th className="num">Invoices</th>
-                <th className="num">Register rows</th>
+                <th className="num">Records</th>
+                <th className="num">Reference rows</th>
                 <th className="num">Open exceptions</th>
-                <th>Invoices reviewed</th>
+                <th>Records reviewed</th>
                 <th />
               </tr>
             </thead>
@@ -98,6 +103,12 @@ export default function BatchList() {
                         <Badge tone="warn">{b.counts.needs_mapping} need mapping</Badge>
                       </>
                     )}
+                    {!b.counts.completeness.complete && b.counts.completeness.gaps.length > 0 && (
+                      <>
+                        {" "}
+                        <Badge tone="warn" title="Not every file is fully imported">Incomplete</Badge>
+                      </>
+                    )}
                     {b.counts.pending_files > 0 && (
                       <>
                         {" "}
@@ -105,8 +116,8 @@ export default function BatchList() {
                       </>
                     )}
                   </td>
-                  <td className="num">{b.counts.invoices}</td>
-                  <td className="num">{b.counts.references}</td>
+                  <td className="num">{b.counts.invoices} <span className="muted small">{words(b).rec}s</span></td>
+                  <td className="num">{b.counts.references} <span className="muted small">{words(b).refRow}s</span></td>
                   <td className="num">{b.counts.open_exception_records > 0 ? <Badge tone="warn">{b.counts.open_exception_records}</Badge> : 0}</td>
                   <td>
                     <Progress value={b.counts.progress.decided} total={b.counts.progress.total} />
@@ -176,7 +187,7 @@ function NewBatchModal({ templates, onClose }: { templates: { id: string; name: 
           autoFocus
           value={name}
           maxLength={120}
-          placeholder="e.g. March 2025 supplier invoices"
+          placeholder="e.g. March 2025 review"
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && name.trim() && submit()}
         />

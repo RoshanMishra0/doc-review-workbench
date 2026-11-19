@@ -18,7 +18,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from .db import loads, now_iso
-from .labels import CATEGORY_LABELS, FILE_STATUS_LABELS, MATCH_STATUS_LABELS, REVIEW_STATUS_LABELS, VALIDATION_STATUS_LABELS
+from .labels import labels_for
 from .services import _batch_row, _template_for_batch, batch_counts
 
 FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r", "\n")
@@ -76,6 +76,11 @@ def build_workbook(conn, batch_id: int) -> tuple[bytes, str]:
     batch = _batch_row(conn, batch_id)
     template = _template_for_batch(batch)
     fdefs = template.fields
+    labels = labels_for(template)
+    ms, vs, rs, cat, fs = (labels["match_status"], labels["validation_status"], labels["review_status"],
+                           labels["category"], labels["file_status"])
+    inv_plural = template.roles["invoice"].plural
+    ref_rows = f"{template.roles['reference'].plural} rows"
     records = conn.execute(
         "SELECT r.*, f.original_name AS file_name FROM records r JOIN files f ON f.id=r.file_id "
         "WHERE r.batch_id=? ORDER BY r.role DESC, r.id", (batch_id,)).fetchall()
@@ -106,12 +111,12 @@ def build_workbook(conn, batch_id: int) -> tuple[bytes, str]:
         role_label = template.roles[r["role"]].label
         return [r["id"], role_label, r["file_name"], r["source_ref"]] + [_field_value(fields.get(f.name)) for f in fdefs] + [
             ", ".join(template.label(k) for k in corrections) or None,
-            VALIDATION_STATUS_LABELS.get(r["validation_status"], r["validation_status"]),
-            MATCH_STATUS_LABELS.get(r["match_status"], r["match_status"]),
+            vs.get(r["validation_status"], r["validation_status"]),
+            ms.get(r["match_status"], r["match_status"]),
             " ".join(match.get("explanation") or []) or None,
             r["partner_id"],
             partner["source_ref"] if partner else None,
-            REVIEW_STATUS_LABELS.get(r["review_status"], r["review_status"]),
+            rs.get(r["review_status"], r["review_status"]),
             r["review_reason"],
             r["reviewed_at"],
             "; ".join(i["message"] for i in rec_issues) or None,
@@ -128,21 +133,26 @@ def build_workbook(conn, batch_id: int) -> tuple[bytes, str]:
         ("Template", f"{template.name} (v{batch['template_version']})"),
         ("Exported at (UTC)", now_iso()),
         ("Data", "Synthetic demo data (fictional companies)" if batch["sample_id"] else "Uploaded by the user"),
-        ("Invoices", counts["invoices"]),
-        ("Register rows", counts["references"]),
-        ("Invoices approved", counts["review"]["approved"]),
-        ("Invoices excluded", counts["review"]["excluded"]),
-        ("Invoices awaiting review", counts["review"]["awaiting_review"]),
+        ("Inputs fully imported", "Yes" if counts["completeness"]["complete"] else
+         "NO - results are incomplete. See 'Files not fully imported' below."),
+        (inv_plural, counts["invoices"]),
+        (ref_rows, counts["references"]),
+        (f"{inv_plural}: approved", counts["review"]["approved"]),
+        (f"{inv_plural}: excluded", counts["review"]["excluded"]),
+        (f"{inv_plural}: awaiting review", counts["review"]["awaiting_review"]),
         ("Records with open exceptions", counts["open_exception_records"]),
         ("Rejected files", counts["rejected_files"]),
+        ("Removed files", counts["files"].get("removed", 0)),
         ("Scope of checks", template.synthetic_note),
     ]
+    for gap in counts["completeness"]["gaps"]:
+        summary_rows.append((f"Files not fully imported: {gap['file_name']}", f"{gap['status_label']}. {gap['reason']}"))
     for key, value in summary_rows:
         summary.append([key, safe_text(value)])
         summary.cell(summary.max_row, 1).font = Font(bold=True)
-    for role, label in (("invoice", "Invoice match status"), ("reference", "Register row match status")):
+    for role, label in (("invoice", inv_plural), ("reference", ref_rows)):
         for status, n in sorted(counts["match"].get(role, {}).items(), key=lambda x: str(x[0])):
-            summary.append([f"{label}: {MATCH_STATUS_LABELS.get(status, status)}", n])
+            summary.append([f"{label} match status: {ms.get(status, status)}", n])
     summary.column_dimensions["A"].width = 40
     summary.column_dimensions["B"].width = 90
 
@@ -159,14 +169,14 @@ def build_workbook(conn, batch_id: int) -> tuple[bytes, str]:
         for i in issues_by_record.get(r["id"], []):
             exc_rows.append([
                 r["id"], template.roles[r["role"]].label, r["source_ref"],
-                CATEGORY_LABELS.get(i["category"], i["category"]), i["severity"], i["rule_id"],
+                cat.get(i["category"], i["category"]), i["severity"], i["rule_id"],
                 template.label(i["field"]) if i["field"] in template.field_names else i["field"],
-                i["message"], MATCH_STATUS_LABELS.get(r["match_status"], r["match_status"]),
-                REVIEW_STATUS_LABELS.get(r["review_status"]),
+                i["message"], ms.get(r["match_status"], r["match_status"]),
+                rs.get(r["review_status"]),
             ])
     _write_sheet(wb, "Outstanding exceptions", exc_headers, exc_rows)
 
-    _write_sheet(wb, "Unmatched register rows", record_headers,
+    _write_sheet(wb, f"Unmatched {template.roles['reference'].label.lower()}s"[:31], record_headers,
                  [record_row(r) for r in records
                   if r["role"] == "reference" and r["match_status"] not in ("matched", "mismatched")], formats)
 
@@ -174,10 +184,10 @@ def build_workbook(conn, batch_id: int) -> tuple[bytes, str]:
                          (batch_id,)).fetchall()
     _write_sheet(wb, "Rejected files",
                  ["File ID", "File name", "Role", "Type", "Size (bytes)", "Uploaded at (UTC)", "Status", "Reason code",
-                  "Reason", "SHA-256"],
+                  "Reason", "Removed at (UTC)", "SHA-256"],
                  [[f["id"], f["original_name"], template.roles[f["role"]].plural, (f["kind"] or "").upper() or None,
-                   f["size_bytes"], f["uploaded_at"], FILE_STATUS_LABELS.get(f["status"], f["status"]),
-                   f["rejection_code"], f["status_detail"], f["sha256"]] for f in files])
+                   f["size_bytes"], f["uploaded_at"], fs.get(f["status"], f["status"]),
+                   f["rejection_code"], f["status_detail"], f["removed_at"], f["sha256"]] for f in files])
 
     history = conn.execute(
         "SELECT h.*, r.source_ref AS record_ref, f.original_name AS file_name FROM history h "

@@ -136,13 +136,20 @@ export default function MappingPanel({
           <button className="btn btn-ghost" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn btn-primary" disabled={saving || loading || problems.length > 0} onClick={confirm}>
+          <button className="btn btn-primary" disabled={saving || loading || problems.length > 0 || !!preview?.over_limit} onClick={confirm}>
             {saving ? <Spinner label="Saving" /> : "Confirm mapping"}
           </button>
         </>
       }
     >
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {preview?.over_limit && (
+        <div className="banner banner-error" role="alert">
+          This sheet has more than {preview.row_limit.toLocaleString()} data rows. This version imports at most {preview.row_limit.toLocaleString()}{" "}
+          rows per file and never imports part of a file, because a partial import could look like a complete reconciliation. Split it into
+          smaller files, or remove it.
+        </div>
+      )}
       {loading && !preview && <Spinner label="Reading the spreadsheet" />}
       {preview && (
         <div className="mapping">
@@ -190,8 +197,7 @@ export default function MappingPanel({
           </div>
           <Notice>
             Suggestions come from <strong>{preview.proposed_from}</strong>. Headings are matched to configured aliases exactly (ignoring case and
-            punctuation); nothing is guessed. Check every row and correct anything that is wrong. {preview.total_rows} data rows found
-            {preview.truncated ? " (row limit reached)" : ""}.
+            punctuation); nothing is guessed. Check every row and correct anything that is wrong. {preview.over_limit ? `More than ${preview.row_limit.toLocaleString()}` : preview.total_rows} data rows found.
           </Notice>
 
           <div className="grid-2 mapping-grid">

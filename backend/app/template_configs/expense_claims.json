@@ -1,0 +1,134 @@
+{
+  "id": "expense_claims",
+  "version": 1,
+  "name": "Expense claims vs expense register",
+  "description": "Checks employee expense claims exported from a claims tool and compares each claim with finance's expense register.",
+  "synthetic_note": "Checks cover completeness, readable dates, valid amounts, duplicates and agreement with the expense register. They do not establish policy compliance, tax treatment, fraud or reimbursement status.",
+  "roles": {
+    "invoice": {
+      "label": "Claim",
+      "plural": "Expense claims",
+      "description": "Employee expense claims exported from a claims tool (CSV or XLSX).",
+      "accepts": ["csv", "xlsx"]
+    },
+    "reference": {
+      "label": "Register row",
+      "plural": "Expense register",
+      "description": "Finance's expense register (CSV or XLSX). Used as the reference for matching.",
+      "accepts": ["csv", "xlsx"]
+    }
+  },
+  "fields": [
+    {
+      "name": "employee",
+      "label": "Employee",
+      "type": "party",
+      "required": true,
+      "aliases": ["employee name", "staff member", "claimant", "staff name"]
+    },
+    {
+      "name": "claim_ref",
+      "label": "Claim reference",
+      "type": "identifier",
+      "required": true,
+      "aliases": ["claim id", "claim no", "claim number", "claim ref", "expense ref", "expense report id"]
+    },
+    {
+      "name": "expense_date",
+      "label": "Expense date",
+      "type": "date",
+      "required": true,
+      "aliases": ["date of expense", "date incurred", "spend date", "transaction date"]
+    },
+    {
+      "name": "category",
+      "label": "Category",
+      "type": "text",
+      "required": false,
+      "aliases": ["cost category", "expense category", "expense type"]
+    },
+    {
+      "name": "currency",
+      "label": "Currency",
+      "type": "currency",
+      "required": true,
+      "aliases": ["ccy", "curr", "currency code"]
+    },
+    {
+      "name": "amount",
+      "label": "Amount",
+      "type": "money",
+      "required": true,
+      "aliases": ["amount claimed", "claimed amount", "amount approved", "approved amount", "claimed", "value"]
+    }
+  ],
+  "dates": {
+    "default_order": "DMY"
+  },
+  "currency": {
+    "default": null,
+    "allowed": ["GBP", "EUR", "USD"],
+    "symbols": {"GBP": "£", "EUR": "€", "USD": "US$"},
+    "markers": {"£": "GBP", "GBP": "GBP", "€": "EUR", "EUR": "EUR", "US$": "USD", "USD": "USD"},
+    "minor_units": {"GBP": 2, "EUR": 2, "USD": 2},
+    "grouping": {}
+  },
+  "party_normalization": {
+    "casefold": true,
+    "replace_ampersand": true,
+    "strip_punctuation": true,
+    "legal_suffixes": [],
+    "aliases": {}
+  },
+  "validation_rules": [
+    {
+      "id": "required_fields",
+      "type": "required",
+      "label": "Required values are present",
+      "fields": ["employee", "claim_ref", "expense_date", "currency", "amount"]
+    },
+    {
+      "id": "date_readable",
+      "type": "date_valid",
+      "label": "Expense date can be read unambiguously with the source's date format",
+      "fields": ["expense_date"]
+    },
+    {
+      "id": "amount_valid",
+      "type": "money_valid",
+      "label": "Amount is valid, not negative and uses the currency's decimal places",
+      "fields": ["amount"],
+      "allow_negative": false
+    },
+    {
+      "id": "currency_supported",
+      "type": "currency_allowed",
+      "label": "Currency is present and in the configured list",
+      "field": "currency"
+    },
+    {
+      "id": "currency_consistent",
+      "type": "currency_consistency",
+      "label": "An amount printed with a currency uses the record's currency",
+      "currency_field": "currency",
+      "amount_fields": ["amount"]
+    },
+    {
+      "id": "duplicate_claim",
+      "type": "duplicate_identity",
+      "label": "No other uploaded claim has the same employee, claim reference and currency",
+      "fields": ["employee", "claim_ref", "currency"],
+      "applies_to": ["invoice"]
+    }
+  ],
+  "matching": {
+    "identity_fields": ["employee", "claim_ref", "currency"],
+    "compare": [
+      {"field": "expense_date"},
+      {"field": "amount", "tolerance": "0.00"},
+      {"field": "category"}
+    ]
+  },
+  "summary_fields": ["employee", "claim_ref", "expense_date", "amount"],
+  "pdf_layouts": []
+}

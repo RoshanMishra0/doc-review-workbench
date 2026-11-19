@@ -2,7 +2,7 @@
 
 A template describes one workflow: what a record looks like, how source columns are recognised, which checks run, and how records are matched against the reference spreadsheet. Templates are JSON files in `backend/app/template_configs/` (or in the folder named by the `DRW_TEMPLATE_DIR` environment variable). They are validated when the server starts; a broken template stops the server with a message that names the problem.
 
-The shipped template is `supplier_invoice.json`. Business-specific names, aliases, rules and keys belong here, not in code.
+Two templates ship: `supplier_invoice.json` (supplier invoices vs purchase register) and `expense_claims.json` (expense claims vs expense register). Business-specific names, aliases, rules and keys belong here, not in code.
 
 ## Top-level keys
 
@@ -10,7 +10,7 @@ The shipped template is `supplier_invoice.json`. Business-specific names, aliase
 | --- | --- |
 | `id`, `version`, `name`, `description` | Identity of the template. Batches record the id and version they were created with. |
 | `synthetic_note` | Text shown in the UI and export that states what the checks do and don't cover. |
-| `roles` | Exactly two roles: `invoice` (the documents being checked) and `reference` (the register they are compared with). Each has a `label`, `plural`, `description` and the file kinds it `accepts` (`pdf`, `csv`, `xlsx`). |
+| `roles` | Exactly two roles: `invoice` (the documents being checked) and `reference` (the register they are compared with). Each has a `label`, `plural`, `description` and the file kinds it `accepts` (`pdf`, `csv`, `xlsx`). The labels are used throughout the UI, explanations and export, including status names: with `label: "Claim"` and `plural: "Expense register"` the statuses read "Missing from expense register" and "Register row without claim". |
 | `fields` | The canonical fields. See below. |
 | `dates` | `default_order`: the date format proposed for new spreadsheets (`DMY`, `MDY`, `YMD` or `UNSPECIFIED`). |
 | `currency` | Allowed codes, display symbols, value markers, decimal places and digit grouping. |
@@ -95,7 +95,7 @@ Records with an `error` issue need a note before they can be approved. Warnings 
 2. A pair is formed only when exactly one active invoice and exactly one free register row share an identity.
 3. Two invoices with the same identity are both "Ambiguous" until one is excluded or linked. Two register rows with the same identity make the invoice "Ambiguous" until a reviewer links one. A register row is never used for two invoices.
 4. After pairing, each compare field is checked. Money differences up to the tolerance pass and are noted. Anything else is "Mismatched", with a sentence per difference, for example: *Invoice total amount is ₹12,500.00; purchase register total amount is ₹12,050.00 (difference ₹450.00).*
-5. If a compare field is missing or invalid on the invoice, the invoice is "Needs correction before matching" and its register row is "Paired invoice needs correction".
+5. If a compare field is missing or invalid on the invoice, the invoice is "Needs correction before matching" and its register row is "Paired invoice needs correction" (the word "invoice" comes from the role label).
 6. Amounts never create a match. "Where to look" hints point at rows that agree on everything except the supplier name or currency, but they never pair records.
 
 Tolerances are strings so they stay exact Decimals. Identity and compare fields can't overlap.
@@ -136,14 +136,29 @@ A PDF that matches no layout is rejected as an unsupported layout. A PDF with no
 
 Implement `DocumentExtractor` from `extraction/base.py`: `can_handle(doc)` and `extract(doc)` returning raw string values with evidence. Set `method` to an honest description (for example "LLM extraction: model X, unverified"). Normalization, validation, matching, review and export don't change. Don't invent confidence scores; keep the factual field statuses.
 
-## Adding a second template
+## The second template: expense claims
 
-For example an expense-register check:
+`expense_claims.json` checks employee expense claims against finance's expense register. It shows what changes between workflows and what doesn't:
 
-1. Copy `supplier_invoice.json` to `expense_register.json`, give it a new `id`, and change roles, fields, aliases, rules and matching keys.
+| Setting | Supplier invoices | Expense claims |
+| --- | --- | --- |
+| Roles | Invoice / Purchase register | Claim / Expense register |
+| Fields | Supplier, invoice number, date, currency, net, tax, total | Employee, claim reference, expense date, category, currency, amount |
+| Identity | Supplier + invoice number + currency | Employee + claim reference + currency |
+| Compared | Date, net, tax, total (±0.01) | Expense date, amount (exact), category (text) |
+| Rules | Includes net + tax = total | No arithmetic rule; same required, date, amount, currency and duplicate rules |
+| Name normalisation | Removes legal suffixes such as Pvt Ltd | No suffixes (these are people) |
+| Inputs | PDF (three layouts), CSV, XLSX | CSV, XLSX only (`pdf_layouts: []`) |
+
+Ingestion, mapping, matching, review, history and export are the same code for both. The sample set **Brightwater Design Studio expenses** exercises it (see `sample_data/README.md`).
+
+## Adding another template
+
+1. Copy one of the shipped templates to a new file, give it a new `id`, and change roles, fields, aliases, rules and matching keys.
 2. Set `pdf_layouts` to `[]` if it only takes spreadsheets.
-3. Restart the server. The template appears in the New batch dialog. Ingestion, mapping, review, history and export work from the template definition.
+3. Restart the server. The template appears in the New batch dialog.
+4. Add a synthetic sample to `sample_data/generate_samples.py` and its expected results, and a test like `backend/tests/test_expense_template.py`.
 
-`backend/tests/test_second_template.py` does exactly this with an expense-claims template (fields Employee, Claim reference, Date spent, Currency, Amount; EUR only) and runs it through upload, mapping, matching, search, approval and export without code changes. Use it as a starting point.
+To try a template without touching the shipped folder, point `DRW_TEMPLATE_DIR` at a folder of template files. `backend/tests/test_second_template.py` does that with a small test template.
 
 Current constraints to keep in mind: the two role names are fixed as `invoice` and `reference` (their labels are configurable), and a template needs one currency field if it has money fields.

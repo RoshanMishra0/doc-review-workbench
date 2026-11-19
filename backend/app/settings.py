@@ -19,6 +19,8 @@ class Settings:
     data_dir: Path
     max_upload_bytes: int = 20 * 1024 * 1024
     max_files_per_upload: int = 100
+    # Spreadsheets with more data rows than this are refused, never imported in part.
+    max_spreadsheet_rows: int = 20000
     sample_dir: Path = SAMPLE_DIR
     frontend_dist: Path = FRONTEND_DIST
 
@@ -36,4 +38,5 @@ def load_settings(data_dir: str | os.PathLike[str] | None = None) -> Settings:
     path = Path(chosen).resolve()
     path.mkdir(parents=True, exist_ok=True)
     (path / "uploads").mkdir(parents=True, exist_ok=True)
-    return Settings(data_dir=path)
+    max_rows = int(os.environ.get("DRW_MAX_SHEET_ROWS", "20000"))
+    return Settings(data_dir=path, max_spreadsheet_rows=max_rows)

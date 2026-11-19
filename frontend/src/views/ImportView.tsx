@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, EmptyState, ErrorBanner, Modal, Notice, Spinner, useMeta } from "../components";
+import { Badge, Card, EmptyState, ErrorBanner, Modal, Notice, Spinner, roleWords, useMeta } from "../components";
 import { bytes, fileTone, label } from "../format";
 import type { BatchDetail, FileInfo, ProcessResult, Role, TemplateSummary } from "../types";
 import MappingPanel from "./MappingPanel";
@@ -33,6 +33,7 @@ export default function ImportView({ batch, onChanged }: { batch: BatchDetail; o
   };
 
   if (!template) return <ErrorBanner error={`Template ${batch.template_id} is not installed.`} />;
+  const w = roleWords(template);
 
   return (
     <div className="stack">
@@ -68,8 +69,8 @@ export default function ImportView({ batch, onChanged }: { batch: BatchDetail; o
         )}
         {result && (
           <Notice tone="good">
-            Processed {result.processed_files} file{result.processed_files === 1 ? "" : "s"}. The batch now has {result.invoices} invoice
-            {result.invoices === 1 ? "" : "s"} and {result.references} register row{result.references === 1 ? "" : "s"}, with{" "}
+            Processed {result.processed_files} file{result.processed_files === 1 ? "" : "s"}. The batch now has {w.count(result.invoices, w.rec)} and{" "}
+            {w.count(result.references, w.refRow)}, with{" "}
             {result.open_exception_records} record{result.open_exception_records === 1 ? "" : "s"} showing exceptions.
             {result.waiting_for_mapping.length > 0 && ` Still waiting for mapping: ${result.waiting_for_mapping.join(", ")}.`}{" "}
             <a href={`#/batches/${batch.id}/records`}>Go to records</a>
@@ -77,7 +78,7 @@ export default function ImportView({ batch, onChanged }: { batch: BatchDetail; o
         )}
         {files.length === 0 ? (
           <EmptyState title="No files uploaded yet">
-            Upload supplier invoices and the purchase register above. Nothing is processed until you press Process.
+            Upload {w.recs} and the {w.ref} above. Nothing is processed until you press Process.
           </EmptyState>
         ) : (
           <table className="table">
@@ -221,7 +222,7 @@ function TemplateCard({ template }: { template: TemplateSummary }) {
               </li>
             ))}
           </ul>
-          <h3>Supported PDF invoice layouts</h3>
+          {template.pdf_layout_details.length > 0 && <h3>Supported PDF layouts</h3>}
           <ul className="plain">
             {template.pdf_layout_details.map((l) => (
               <li key={l.id}>
@@ -230,9 +231,14 @@ function TemplateCard({ template }: { template: TemplateSummary }) {
             ))}
           </ul>
           <p className="muted small">
-            PDFs are read by deterministic text parsers for these layouts. Other layouts, scans without a text layer and damaged files are
-            rejected with a reason. Supplier names are compared after removing case, punctuation and the legal suffixes{" "}
-            {template.party_normalization.legal_suffixes.join(", ")}; explicit aliases:{" "}
+            {template.pdf_layout_details.length > 0
+              ? "PDFs are read by deterministic text parsers for these layouts. "
+              : "This template takes spreadsheets only. "}
+            {template.pdf_layout_details.length > 0 && "Other layouts, scans without a text layer and damaged files are rejected with a reason. "}
+            Names are compared ignoring case and punctuation
+            {template.party_normalization.legal_suffixes.length > 0 &&
+              `, after removing the legal suffixes ${template.party_normalization.legal_suffixes.join(", ")}`}
+            ; explicit aliases:{" "}
             {Object.entries(template.party_normalization.aliases)
               .map(([k, v]) => `${v.join(", ")} = ${k}`)
               .join("; ") || "none"}
@@ -343,8 +349,9 @@ function RemoveFileModal({ file, onClose, onRemoved }: { file: FileInfo; onClose
     >
       <ErrorBanner error={error} />
       <p>
-        Remove <strong>{file.original_name}</strong> from this batch? Records imported from it are deleted and matching is rerun. The file
-        stays in the list as removed, so every upload remains accounted for.
+        Remove <strong>{file.original_name}</strong> from this batch? This permanently deletes the app's stored copy of the file, its
+        extracted text and the records read from it, and blanks any values from it in the history. Matching is rerun. The file stays in the
+        list as removed (name, size and fingerprint), so every upload remains accounted for. Your original file elsewhere is not touched.
       </p>
     </Modal>
   );

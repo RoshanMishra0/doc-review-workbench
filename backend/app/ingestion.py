@@ -20,8 +20,10 @@ from .template_config import Template
 
 ALLOWED_EXTENSIONS = {".pdf": "pdf", ".csv": "csv", ".xlsx": "xlsx"}
 MAX_PREVIEW_ROWS = 12
-MAX_SPREADSHEET_ROWS = 20000
-HEADER_SCAN_ROWS = 20
+DEFAULT_MAX_ROWS = 20000  # data rows per spreadsheet; Settings.max_spreadsheet_rows overrides it
+MAX_HEADER_ROW = 1000  # the heading row can be anywhere in the first 1000 rows
+HEADER_SCAN_ROWS = 20  # automatic heading detection looks at the first 20 rows
+BLANK_SCAN_LIMIT = 50000  # how far past the cap we look for more data before giving up and refusing
 
 
 class IngestionError(Exception):
@@ -87,8 +89,10 @@ class Table:
     sheet: str | None
     header_row: int  # 1-based row number in the file
     headers: list[str]
-    rows: list[tuple[int, list[Cell]]]  # (1-based row number, cells)
-    truncated: bool = False
+    rows: list[tuple[int, list[Cell]]]  # (1-based row number, cells); empty if over_limit
+    over_limit: bool = False  # more data rows than row_limit: the file must not be imported
+    row_limit: int = DEFAULT_MAX_ROWS
+    data_row_count: int = 0  # exact when not over_limit, otherwise a lower bound
     notes: list[str] = field(default_factory=list)
 
 
@@ -149,7 +153,12 @@ def _decode_csv(data: bytes) -> str:
     return data.decode("latin-1")
 
 
-def _read_csv_rows(data: bytes) -> list[list[Cell]]:
+def _raw_cap(max_rows: int) -> int:
+    return max_rows + MAX_HEADER_ROW + 1
+
+
+def _read_csv_rows(data: bytes, cap: int) -> tuple[list[list[Cell]], bool]:
+    """Rows up to ``cap``, and whether any non-empty row exists beyond it."""
     text = _decode_csv(data)
     sample = text[:4096]
     try:
@@ -160,16 +169,18 @@ def _read_csv_rows(data: bytes) -> list[list[Cell]]:
     reader = csv.reader(io.StringIO(text), delimiter=delimiter)
     rows: list[list[Cell]] = []
     for r_idx, raw in enumerate(reader, start=1):
-        if r_idx > MAX_SPREADSHEET_ROWS + HEADER_SCAN_ROWS:
-            break
+        if r_idx > cap:
+            if any(v.strip() for v in raw):
+                return rows, True
+            continue
         rows.append([
             Cell(v if v.strip() else None, "text" if v.strip() else "empty", f"{_col_letter(c)}{r_idx}")
             for c, v in enumerate(raw)
         ])
-    return rows
+    return rows, False
 
 
-def _read_xlsx_rows(path: Path, sheet: str | None) -> tuple[list[str], str, list[list[Cell]]]:
+def _read_xlsx_rows(path: Path, sheet: str | None, cap: int) -> tuple[list[str], str, list[list[Cell]], bool]:
     try:
         wb = load_workbook(path, read_only=True, data_only=True)
     except (zipfile.BadZipFile, KeyError, OSError, ValueError) as exc:
@@ -180,10 +191,15 @@ def _read_xlsx_rows(path: Path, sheet: str | None) -> tuple[list[str], str, list
         ws = wb[chosen]
         rows: list[list[Cell]] = []
         for r_idx, values in enumerate(ws.iter_rows(values_only=True), start=1):
-            if r_idx > MAX_SPREADSHEET_ROWS + HEADER_SCAN_ROWS:
-                break
+            if r_idx > cap:
+                if any(v is not None and str(v).strip() for v in values):
+                    return names, chosen, rows, True
+                if r_idx > cap + BLANK_SCAN_LIMIT:
+                    # Too many rows to confirm they are all blank: refuse rather than guess.
+                    return names, chosen, rows, True
+                continue
             rows.append([_cell_from_value(v, f"{chosen}!{_col_letter(c)}{r_idx}") for c, v in enumerate(values)])
-        return names, chosen, rows
+        return names, chosen, rows, False
     finally:
         wb.close()
 
@@ -222,19 +238,22 @@ def _unique_headers(cells: list[Cell], width: int) -> list[str]:
 
 
 def read_table(path: Path, kind: str, template: Template, sheet: str | None = None,
-               header_row: int | None = None) -> Table:
+               header_row: int | None = None, max_rows: int = DEFAULT_MAX_ROWS) -> Table:
+    """Read a sheet. If it has more than ``max_rows`` data rows, ``over_limit`` is set and no
+    rows are returned: a partial import could be mistaken for a complete one."""
+    cap = _raw_cap(max_rows)
     if kind == "csv":
-        rows = _read_csv_rows(path.read_bytes())
+        rows, more = _read_csv_rows(path.read_bytes(), cap)
         sheets, chosen = [], None
     elif kind == "xlsx":
-        sheets, chosen, rows = _read_xlsx_rows(path, sheet)
+        sheets, chosen, rows, more = _read_xlsx_rows(path, sheet, cap)
         if sheet is None and len(sheets) > 1:
-            chosen, rows = _best_sheet(path, sheets, template, chosen, rows)
+            chosen, rows, more = _best_sheet(path, sheets, template, chosen, rows, more, cap)
     else:
         raise IngestionError(f"{kind} is not a spreadsheet")
     alias_index = template.alias_index()
     if not rows:
-        return Table(sheets, chosen, 1, [], [], notes=["The sheet is empty."])
+        return Table(sheets, chosen, 1, [], [], over_limit=more, row_limit=max_rows, notes=["The sheet is empty."])
     h_row = header_row if header_row and 1 <= header_row <= len(rows) else _detect_header_row(rows, alias_index)
     width = max((len(r) for r in rows), default=0)
     # Ignore trailing columns that are empty everywhere.
@@ -248,21 +267,28 @@ def read_table(path: Path, kind: str, template: Template, sheet: str | None = No
         if all(c.text is None for c in cells):
             continue
         data_rows.append((r_idx + 1, cells))
-    truncated = len(data_rows) > MAX_SPREADSHEET_ROWS
-    return Table(sheets, chosen, h_row, headers, data_rows[:MAX_SPREADSHEET_ROWS], truncated)
+    over_limit = more or len(data_rows) > max_rows
+    notes = []
+    if over_limit:
+        notes.append(f"This sheet has more than {max_rows:,} data rows. This version imports at most {max_rows:,} "
+                     "rows per file and never imports part of a file. Split it into smaller files.")
+    preview_rows = data_rows if not over_limit else data_rows[:12]
+    return Table(sheets, chosen, h_row, headers, preview_rows, over_limit=over_limit, row_limit=max_rows,
+                 data_row_count=len(data_rows), notes=notes)
 
 
-def _best_sheet(path: Path, sheets: list[str], template: Template, first: str, first_rows):
+def _best_sheet(path: Path, sheets: list[str], template: Template, first: str, first_rows, first_more: bool, cap: int):
     alias_index = template.alias_index()
-    best = (first, first_rows, max((_header_score(r, alias_index) for r in first_rows[:HEADER_SCAN_ROWS]), default=0))
+    best = (first, first_rows, first_more,
+            max((_header_score(r, alias_index) for r in first_rows[:HEADER_SCAN_ROWS]), default=0))
     for name in sheets:
         if name == first:
             continue
-        _, _, rows = _read_xlsx_rows(path, name)
+        _, _, rows, more = _read_xlsx_rows(path, name, cap)
         score = max((_header_score(r, alias_index) for r in rows[:HEADER_SCAN_ROWS]), default=0)
-        if score > best[2]:
-            best = (name, rows, score)
-    return best[0], best[1]
+        if score > best[3]:
+            best = (name, rows, more, score)
+    return best[0], best[1], best[2]
 
 
 # ---------------------------------------------------------------- mapping
@@ -334,8 +360,9 @@ def preview_payload(table: Table, template: Template, mapping: dict[str, str | N
         "header_row": table.header_row,
         "headers": table.headers,
         "rows": sample_rows,
-        "total_rows": len(table.rows),
-        "truncated": table.truncated,
+        "total_rows": table.data_row_count,
+        "over_limit": table.over_limit,
+        "row_limit": table.row_limit,
         "notes": table.notes,
         "date_analysis": date_analysis,
         "signature": header_signature(table.headers),

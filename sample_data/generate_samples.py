@@ -11,6 +11,8 @@ Outputs (committed to the repository):
     sample_data/harbor_lane/purchase_register.xlsx
     sample_data/meridian/supplier_invoice_listing.csv
     sample_data/meridian/purchase_register.csv
+    sample_data/brightwater/expense_claims_export.csv
+    sample_data/brightwater/expense_register.xlsx
     sample_data/manifest.json           which files each sample set loads, and their roles
     sample_data/expected_outcomes.json  what the pipeline should report (used by tests only)
 
@@ -23,6 +25,8 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
+import zipfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -225,6 +229,44 @@ MERIDIAN_REGISTER = [
 ]
 
 
+# Brightwater Design Studio (fictional): expense claims (CSV export) vs finance's expense register (XLSX).
+# claim: employee, claim id, expense date (DD/MM/YYYY text), category, currency, amount claimed, description,
+#        expected match status, expected issue categories
+BRIGHTWATER_CLAIMS = [
+    ("Asha Rao", "EXP-1001", "03/02/2025", "Travel", "GBP", "42.60", "Train to client site", "matched", []),
+    ("Tom Okafor", "EXP-1002", "04/02/2025", "Meals", "GBP", "18.75", "Lunch during site visit", "matched", []),
+    ("Mei Lin", "EXP-1003", "05/02/2025", "Accommodation", "GBP", "129.00", "Hotel, one night", "matched", []),
+    ("Asha Rao", "EXP-1004", "07/02/2025", "Travel", "GBP", "84.00", "Taxi, return", "mismatched", ["mismatch"]),
+    ("Tom Okafor", "EXP-1005", "10/02/2025", "Meals", "GBP", "", "Team dinner (amount left blank)", "invalid",
+     ["missing_required"]),
+    ("Mei Lin", "EXP-1006", "30/02/2025", "Travel", "GBP", "23.40", "Bus fares", "invalid", ["invalid_date"]),
+    ("Daniel Price", "EXP-1007", "11/02/2025", "Equipment", "GBP", "59.99", "Keyboard", "ambiguous", ["duplicate"]),
+    ("Daniel Price", "EXP-1007", "11/02/2025", "Equipment", "GBP", "59.99", "Keyboard (submitted twice)", "ambiguous",
+     ["duplicate"]),
+    ("Sara Ahmed", "EXP-1008", "12/02/2025", "Training", "EUR", "150.00", "Workshop fee", "missing_from_reference",
+     ["missing_from_reference"]),
+    ("Asha Rao", "EXP-1009", "14/02/2025", "Meals", "GBP", "31.20", "Client coffee", "mismatched", ["mismatch"]),
+    ("Tom Okafor", "EXP-1010", "17/02/2025", "Travel", "GBP", "42.60", "Train to client site", "missing_from_reference",
+     ["missing_from_reference"]),
+    ("Mei Lin", "EXP-1011", "18/02/2025", "Software", "GBP", "12.00", "Font licence", "ambiguous", ["ambiguous"]),
+]
+# register: staff member, claim no, date incurred, cost category, ccy, amount approved, cost centre, expected match
+BRIGHTWATER_REGISTER = [
+    ("Asha Rao", "EXP-1001", date(2025, 2, 3), "Travel", "GBP", "42.60", "Studio", "matched"),
+    ("Tom Okafor", "EXP-1002", date(2025, 2, 4), "Meals", "GBP", "18.75", "Studio", "matched"),
+    ("Mei Lin", "EXP-1003", date(2025, 2, 5), "Accommodation", "GBP", "129.00", "Projects", "matched"),
+    ("Asha Rao", "EXP-1004", date(2025, 2, 7), "Travel", "GBP", "80.00", "Studio", "mismatched"),
+    ("Tom Okafor", "EXP-1005", date(2025, 2, 10), "Meals", "GBP", "22.50", "Studio", "partner_invalid"),
+    ("Mei Lin", "EXP-1006", date(2025, 2, 20), "Travel", "GBP", "23.40", "Projects", "partner_invalid"),
+    ("Daniel Price", "EXP-1007", date(2025, 2, 11), "Equipment", "GBP", "59.99", "IT", "ambiguous"),
+    ("Sara Ahmed", "EXP-1008", date(2025, 2, 12), "Training", "GBP", "150.00", "People", "no_invoice"),
+    ("Asha Rao", "EXP-1009", date(2025, 2, 14), "Entertainment", "GBP", "31.20", "Studio", "mismatched"),
+    ("Mei Lin", "EXP-1011", date(2025, 2, 18), "Software", "GBP", "12.00", "IT", "ambiguous"),
+    ("Mei Lin", "EXP-1011", date(2025, 2, 18), "Software", "GBP", "12.00", "IT", "ambiguous"),
+    ("Priya Nair", "EXP-1012", date(2025, 2, 19), "Travel", "GBP", "42.60", "Projects", "no_invoice"),
+]
+
+
 # ---------------------------------------------------------------- PDF writers
 
 def new_pdf(title: str) -> FPDF:
@@ -423,6 +465,48 @@ def write_harbor_register(path: Path) -> list[dict]:
     wb.properties.created = FIXED_TIME.replace(tzinfo=None)
     wb.properties.modified = FIXED_TIME.replace(tzinfo=None)
     wb.save(path)
+    normalize_zip(path)
+    return expected
+
+
+def normalize_zip(path: Path) -> None:
+    """Rewrite an XLSX with fixed zip timestamps so the output is byte-for-byte reproducible."""
+    with zipfile.ZipFile(path) as src:
+        items = [(info, src.read(info.filename)) for info in src.infolist()]
+    fixed_stamp = FIXED_TIME.strftime("%Y-%m-%dT%H:%M:%SZ").encode()
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as out:
+        for info, data in items:
+            if info.filename == "docProps/core.xml":
+                # openpyxl stamps "modified" with the current time on every save.
+                data = re.sub(rb"(<dcterms:modified[^>]*>)[^<]*(</dcterms:modified>)", rb"\g<1>" + fixed_stamp + rb"\g<2>", data)
+            fixed = zipfile.ZipInfo(info.filename, date_time=FIXED_TIME.timetuple()[:6])
+            fixed.compress_type = zipfile.ZIP_DEFLATED
+            fixed.external_attr = info.external_attr
+            out.writestr(fixed, data)
+
+
+def write_brightwater_register(path: Path) -> list[dict]:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Expense register"
+    ws.append(["Staff member", "Claim no", "Date incurred", "Cost category", "CCY", "Amount approved", "Cost centre"])
+    expected = []
+    for staff, claim, when, category, ccy, amount, centre, outcome in BRIGHTWATER_REGISTER:
+        ws.append([staff, claim, when, category, ccy, Decimal(amount), centre])
+        r = ws.max_row
+        ws.cell(r, 3).number_format = "DD/MM/YYYY"
+        ws.cell(r, 6).number_format = "#,##0.00"
+        expected.append({"row": r, "claim_ref": claim, "employee": staff, "expected_match": outcome})
+    notes = wb.create_sheet("Notes")
+    notes["A1"] = "SYNTHETIC expense register for Brightwater Design Studio Ltd (fictional company and staff)."
+    notes["A2"] = "Generated by sample_data/generate_samples.py for demonstrations. Not real data."
+    for idx, w in enumerate([16, 12, 14, 16, 8, 16, 12], start=1):
+        ws.column_dimensions[chr(64 + idx)].width = w
+    wb.properties.creator = "Synthetic data generator"
+    wb.properties.created = FIXED_TIME.replace(tzinfo=None)
+    wb.properties.modified = FIXED_TIME.replace(tzinfo=None)
+    wb.save(path)
+    normalize_zip(path)
     return expected
 
 
@@ -461,6 +545,13 @@ def main() -> None:
                "Doc Total"],
               [list(r[:7]) for r in MERIDIAN_REGISTER])
 
+    bright = ROOT / "brightwater"
+    bright.mkdir(parents=True, exist_ok=True)
+    write_csv(bright / "expense_claims_export.csv",
+              ["Employee", "Claim ID", "Expense date", "Category", "Currency", "Amount claimed", "Description"],
+              [list(r[:7]) for r in BRIGHTWATER_CLAIMS])
+    bright_register_expected = write_brightwater_register(bright / "expense_register.xlsx")
+
     harbor_files = [{"role": "invoice", "path": f"harbor_lane/invoices/{inv.file_name}"} for inv in HARBOR_INVOICES]
     harbor_files += [{"role": "invoice", "path": f"harbor_lane/invoices/{name}"} for name, _, _ in HARBOR_REJECTED]
     harbor_files.append({"role": "reference", "path": "harbor_lane/purchase_register.xlsx"})
@@ -486,6 +577,19 @@ def main() -> None:
                 "files": [
                     {"role": "invoice", "path": "meridian/supplier_invoice_listing.csv"},
                     {"role": "reference", "path": "meridian/purchase_register.csv"},
+                ],
+            },
+            {
+                "id": "brightwater_expenses",
+                "name": "Brightwater Design Studio expenses (fictional)",
+                "template_id": "expense_claims",
+                "description": "Second template: 12 employee expense claims (CSV export) checked against finance's "
+                               "expense register (XLSX). Covers clean matches, a reduced approved amount, a category "
+                               "difference, a blank amount, an impossible date, a claim submitted twice, a currency "
+                               "difference and a register entered twice.",
+                "files": [
+                    {"role": "invoice", "path": "brightwater/expense_claims_export.csv"},
+                    {"role": "reference", "path": "brightwater/expense_register.xlsx"},
                 ],
             },
         ],
@@ -519,9 +623,16 @@ def main() -> None:
             },
             "register_date_order": "MDY",
         },
+        "brightwater_expenses": {
+            "claims": [
+                {"row": i + 2, "claim_ref": r[1], "employee": r[0], "expected_match": r[7], "expected_issues": r[8]}
+                for i, r in enumerate(BRIGHTWATER_CLAIMS)
+            ],
+            "register_rows": bright_register_expected,
+        },
     }
     (ROOT / "expected_outcomes.json").write_text(json.dumps(expected, indent=2) + "\n", encoding="utf-8")
-    print(f"Wrote {len(HARBOR_INVOICES) + len(HARBOR_REJECTED)} PDFs, 1 XLSX and 2 CSV files under {ROOT}")
+    print(f"Wrote {len(HARBOR_INVOICES) + len(HARBOR_REJECTED)} PDFs, 2 XLSX and 3 CSV files under {ROOT}")
 
 
 if __name__ == "__main__":

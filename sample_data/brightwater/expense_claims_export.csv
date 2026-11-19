@@ -1,0 +1,13 @@
+Employee,Claim ID,Expense date,Category,Currency,Amount claimed,Description
+Asha Rao,EXP-1001,03/02/2025,Travel,GBP,42.60,Train to client site
+Tom Okafor,EXP-1002,04/02/2025,Meals,GBP,18.75,Lunch during site visit
+Mei Lin,EXP-1003,05/02/2025,Accommodation,GBP,129.00,"Hotel, one night"
+Asha Rao,EXP-1004,07/02/2025,Travel,GBP,84.00,"Taxi, return"
+Tom Okafor,EXP-1005,10/02/2025,Meals,GBP,,Team dinner (amount left blank)
+Mei Lin,EXP-1006,30/02/2025,Travel,GBP,23.40,Bus fares
+Daniel Price,EXP-1007,11/02/2025,Equipment,GBP,59.99,Keyboard
+Daniel Price,EXP-1007,11/02/2025,Equipment,GBP,59.99,Keyboard (submitted twice)
+Sara Ahmed,EXP-1008,12/02/2025,Training,EUR,150.00,Workshop fee
+Asha Rao,EXP-1009,14/02/2025,Meals,GBP,31.20,Client coffee
+Tom Okafor,EXP-1010,17/02/2025,Travel,GBP,42.60,Train to client site
+Mei Lin,EXP-1011,18/02/2025,Software,GBP,12.00,Font licence

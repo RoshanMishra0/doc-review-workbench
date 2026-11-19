@@ -65,6 +65,7 @@ export interface TemplateSummary {
   pdf_layout_details: { id: string; name: string; description: string; date_order: string; date_order_label: string }[];
   date_order_labels: Record<string, string>;
   summary_columns: { name: string; label: string }[];
+  labels: Labels;
 }
 
 export interface Meta {
@@ -74,7 +75,17 @@ export interface Meta {
   limits: { max_upload_mb: number; max_files_per_upload: number };
 }
 
+export interface ImportGap {
+  file_id: number;
+  file_name: string;
+  role: Role;
+  status: string;
+  status_label: string;
+  reason: string;
+}
+
 export interface Counts {
+  completeness: { complete: boolean; gaps: ImportGap[] };
   files: Record<string, number> & { total: number };
   invoices: number;
   references: number;
@@ -125,6 +136,7 @@ export interface FileInfo {
   record_count: number;
   uploaded_at: string;
   processed_at: string | null;
+  removed_at: string | null;
   identical_to?: string | null;
 }
 
@@ -300,7 +312,8 @@ export interface Preview {
   headers: string[];
   rows: { row: number; cells: (string | null)[] }[];
   total_rows: number;
-  truncated: boolean;
+  over_limit: boolean;
+  row_limit: number;
   notes: string[];
   date_analysis: DateAnalysis | null;
   signature: string;

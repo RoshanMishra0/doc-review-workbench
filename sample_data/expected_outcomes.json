@@ -312,5 +312,185 @@
       "total_amount": "Doc Total"
     },
     "register_date_order": "MDY"
+  },
+  "brightwater_expenses": {
+    "claims": [
+      {
+        "row": 2,
+        "claim_ref": "EXP-1001",
+        "employee": "Asha Rao",
+        "expected_match": "matched",
+        "expected_issues": []
+      },
+      {
+        "row": 3,
+        "claim_ref": "EXP-1002",
+        "employee": "Tom Okafor",
+        "expected_match": "matched",
+        "expected_issues": []
+      },
+      {
+        "row": 4,
+        "claim_ref": "EXP-1003",
+        "employee": "Mei Lin",
+        "expected_match": "matched",
+        "expected_issues": []
+      },
+      {
+        "row": 5,
+        "claim_ref": "EXP-1004",
+        "employee": "Asha Rao",
+        "expected_match": "mismatched",
+        "expected_issues": [
+          "mismatch"
+        ]
+      },
+      {
+        "row": 6,
+        "claim_ref": "EXP-1005",
+        "employee": "Tom Okafor",
+        "expected_match": "invalid",
+        "expected_issues": [
+          "missing_required"
+        ]
+      },
+      {
+        "row": 7,
+        "claim_ref": "EXP-1006",
+        "employee": "Mei Lin",
+        "expected_match": "invalid",
+        "expected_issues": [
+          "invalid_date"
+        ]
+      },
+      {
+        "row": 8,
+        "claim_ref": "EXP-1007",
+        "employee": "Daniel Price",
+        "expected_match": "ambiguous",
+        "expected_issues": [
+          "duplicate"
+        ]
+      },
+      {
+        "row": 9,
+        "claim_ref": "EXP-1007",
+        "employee": "Daniel Price",
+        "expected_match": "ambiguous",
+        "expected_issues": [
+          "duplicate"
+        ]
+      },
+      {
+        "row": 10,
+        "claim_ref": "EXP-1008",
+        "employee": "Sara Ahmed",
+        "expected_match": "missing_from_reference",
+        "expected_issues": [
+          "missing_from_reference"
+        ]
+      },
+      {
+        "row": 11,
+        "claim_ref": "EXP-1009",
+        "employee": "Asha Rao",
+        "expected_match": "mismatched",
+        "expected_issues": [
+          "mismatch"
+        ]
+      },
+      {
+        "row": 12,
+        "claim_ref": "EXP-1010",
+        "employee": "Tom Okafor",
+        "expected_match": "missing_from_reference",
+        "expected_issues": [
+          "missing_from_reference"
+        ]
+      },
+      {
+        "row": 13,
+        "claim_ref": "EXP-1011",
+        "employee": "Mei Lin",
+        "expected_match": "ambiguous",
+        "expected_issues": [
+          "ambiguous"
+        ]
+      }
+    ],
+    "register_rows": [
+      {
+        "row": 2,
+        "claim_ref": "EXP-1001",
+        "employee": "Asha Rao",
+        "expected_match": "matched"
+      },
+      {
+        "row": 3,
+        "claim_ref": "EXP-1002",
+        "employee": "Tom Okafor",
+        "expected_match": "matched"
+      },
+      {
+        "row": 4,
+        "claim_ref": "EXP-1003",
+        "employee": "Mei Lin",
+        "expected_match": "matched"
+      },
+      {
+        "row": 5,
+        "claim_ref": "EXP-1004",
+        "employee": "Asha Rao",
+        "expected_match": "mismatched"
+      },
+      {
+        "row": 6,
+        "claim_ref": "EXP-1005",
+        "employee": "Tom Okafor",
+        "expected_match": "partner_invalid"
+      },
+      {
+        "row": 7,
+        "claim_ref": "EXP-1006",
+        "employee": "Mei Lin",
+        "expected_match": "partner_invalid"
+      },
+      {
+        "row": 8,
+        "claim_ref": "EXP-1007",
+        "employee": "Daniel Price",
+        "expected_match": "ambiguous"
+      },
+      {
+        "row": 9,
+        "claim_ref": "EXP-1008",
+        "employee": "Sara Ahmed",
+        "expected_match": "no_invoice"
+      },
+      {
+        "row": 10,
+        "claim_ref": "EXP-1009",
+        "employee": "Asha Rao",
+        "expected_match": "mismatched"
+      },
+      {
+        "row": 11,
+        "claim_ref": "EXP-1011",
+        "employee": "Mei Lin",
+        "expected_match": "ambiguous"
+      },
+      {
+        "row": 12,
+        "claim_ref": "EXP-1011",
+        "employee": "Mei Lin",
+        "expected_match": "ambiguous"
+      },
+      {
+        "row": 13,
+        "claim_ref": "EXP-1012",
+        "employee": "Priya Nair",
+        "expected_match": "no_invoice"
+      }
+    ]
   }
 }

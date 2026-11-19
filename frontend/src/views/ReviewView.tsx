@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, EmptyState, ErrorBanner, Notice, Spinner, useMeta } from "../components";
+import { Badge, Card, EmptyState, ErrorBanner, Notice, Spinner, roleWords, useMeta, useTemplate } from "../components";
 import { ACTION_LABELS, dateTime, fieldTone, label, matchTone, reviewTone, validationTone } from "../format";
 import { navigate, withQuery } from "../router";
 import type { BatchDetail, Evidence, RecordDetail, RecordSummary } from "../types";
@@ -126,6 +126,7 @@ function RecordReview({
   if (!rec) return <Spinner label="Loading record" />;
 
   const errors = rec.issues.filter((i) => i.severity === "error");
+  const tLabels = meta.templates.find((t) => t.id === rec.template_id)?.labels ?? meta.labels;
   return (
     <div className="stack">
       <div className="review-head">
@@ -138,9 +139,9 @@ function RecordReview({
           </h2>
           <div className="badges">
             <span className="muted small">{rec.role_label}</span>
-            <Badge tone={validationTone(rec.validation_status)}>{label(meta.labels, "validation_status", rec.validation_status)}</Badge>
-            <Badge tone={matchTone(rec.match_status)}>{label(meta.labels, "match_status", rec.match_status)}</Badge>
-            <Badge tone={reviewTone(rec.review_status)}>{label(meta.labels, "review_status", rec.review_status)}</Badge>
+            <Badge tone={validationTone(rec.validation_status)}>{label(tLabels, "validation_status", rec.validation_status)}</Badge>
+            <Badge tone={matchTone(rec.match_status)}>{label(tLabels, "match_status", rec.match_status)}</Badge>
+            <Badge tone={reviewTone(rec.review_status)}>{label(tLabels, "review_status", rec.review_status)}</Badge>
             {rec.corrected && <Badge tone="accent">User corrected</Badge>}
           </div>
         </div>
@@ -199,6 +200,7 @@ function FieldsCard({
   onHighlight: (field: string | null) => void;
 }) {
   const meta = useMeta();
+  const tLabels = meta.templates.find((t) => t.id === rec.template_id)?.labels ?? meta.labels;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [note, setNote] = useState("");
@@ -277,7 +279,7 @@ function FieldsCard({
                   )}
                 </td>
                 <td className="nowrap">
-                  <Badge tone={fieldTone(f.status)}>{label(meta.labels, "field_status", f.status)}</Badge>
+                  <Badge tone={fieldTone(f.status)}>{label(tLabels, "field_status", f.status)}</Badge>
                   {f.status === "user_corrected" && !editing && (
                     <button className="link tiny" disabled={busy !== null} onClick={() => revert(fd.name)}>
                       Revert
@@ -300,6 +302,7 @@ function FieldsCard({
 }
 
 function ChecksCard({ rec }: { rec: RecordDetail }) {
+  const scope = useTemplate(rec.template_id).synthetic_note;
   const issues = rec.checks.filter((c) => c.status === "issue");
   const others = rec.checks.filter((c) => c.status !== "issue");
   return (
@@ -318,8 +321,7 @@ function ChecksCard({ rec }: { rec: RecordDetail }) {
         ))}
       </ul>
       <div className="muted tiny">
-        These checks cover completeness, readable dates, valid amounts, arithmetic and duplicates. They do not establish tax compliance, payment
-        status, fraud or accounting correctness.
+        {scope}
       </div>
     </Card>
   );
@@ -337,14 +339,16 @@ function MatchCard({
   run: (name: string, fn: () => Promise<RecordDetail>, message?: string) => Promise<boolean>;
 }) {
   const meta = useMeta();
+  const tLabels = meta.templates.find((t) => t.id === rec.template_id)?.labels ?? meta.labels;
   const m = rec.match;
   const partner = rec.partner;
-  const template = meta.templates.find((t) => t.id === rec.template_id);
+  const template = meta.templates.find((t) => t.id === rec.template_id)!;
+  const w = roleWords(template);
   const extraCols = (template?.summary_columns ?? []).slice(2);
   return (
     <Card title="Matching">
       <div className="badges">
-        <Badge tone={matchTone(m.status)}>{label(meta.labels, "match_status", m.status)}</Badge>
+        <Badge tone={matchTone(m.status)}>{label(tLabels, "match_status", m.status)}</Badge>
         {m.method === "manual_link" && <Badge tone="accent">Linked by a reviewer</Badge>}
       </div>
       <ul className="plain explanation">
@@ -357,8 +361,8 @@ function MatchCard({
           <thead>
             <tr>
               <th>Field</th>
-              <th>{rec.role === "invoice" ? "This invoice" : "This row"}</th>
-              <th>{rec.role === "invoice" ? "Register row" : "Invoice"}</th>
+              <th>{rec.role === "invoice" ? `This ${w.rec}` : "This row"}</th>
+              <th>{rec.role === "invoice" ? w.RefRow : w.Rec}</th>
               <th>Result</th>
             </tr>
           </thead>
@@ -406,7 +410,7 @@ function MatchCard({
       {m.status === "ambiguous" && rec.candidates.length > 0 && (
         <div className="candidates">
           <div className="strong small">
-            Possible {rec.role === "invoice" ? "register rows" : "invoices"} with the same identity. Amounts are not used to choose.
+            Possible {rec.role === "invoice" ? `${w.refRow}s` : `${w.rec}s`} with the same identity. Amounts are not used to choose.
           </div>
           <table className="table compact">
             <thead>
@@ -436,7 +440,7 @@ function MatchCard({
                         disabled={busy !== null}
                         onClick={() => run("link", () => api.link(rec.id, c.id, null), `Linked to #${c.id} and reran matching.`)}
                       >
-                        Link this {rec.role === "invoice" ? "row" : "invoice"}
+                        Link this {rec.role === "invoice" ? "row" : w.rec}
                       </button>
                     )}
                   </td>
@@ -444,7 +448,7 @@ function MatchCard({
               ))}
             </tbody>
           </table>
-          <div className="muted tiny">For a duplicate invoice, excluding the extra copy is usually the right fix.</div>
+          <div className="muted tiny">For a duplicate {w.rec}, excluding the extra copy is usually the right fix.</div>
         </div>
       )}
     </Card>
@@ -463,6 +467,7 @@ function DecisionCard({
   run: (name: string, fn: () => Promise<RecordDetail>, message?: string) => Promise<boolean>;
 }) {
   const meta = useMeta();
+  const tLabels = meta.templates.find((t) => t.id === rec.template_id)?.labels ?? meta.labels;
   const [text, setText] = useState("");
   const status = rec.review_status;
   const act = async (name: string, fn: () => Promise<RecordDetail>, message: string) => {
@@ -471,7 +476,7 @@ function DecisionCard({
   return (
     <Card title="Review decision">
       <div className="small">
-        Status: <Badge tone={reviewTone(status)}>{label(meta.labels, "review_status", status)}</Badge>
+        Status: <Badge tone={reviewTone(status)}>{label(tLabels, "review_status", status)}</Badge>
         {rec.review_reason && <span className="muted"> · {rec.review_reason}</span>}
         {rec.reviewed_at && <span className="muted"> · {dateTime(rec.reviewed_at)}</span>}
       </div>

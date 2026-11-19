@@ -100,6 +100,22 @@
           "path": "meridian/purchase_register.csv"
         }
       ]
+    },
+    {
+      "id": "brightwater_expenses",
+      "name": "Brightwater Design Studio expenses (fictional)",
+      "template_id": "expense_claims",
+      "description": "Second template: 12 employee expense claims (CSV export) checked against finance's expense register (XLSX). Covers clean matches, a reduced approved amount, a category difference, a blank amount, an impossible date, a claim submitted twice, a currency difference and a register entered twice.",
+      "files": [
+        {
+          "role": "invoice",
+          "path": "brightwater/expense_claims_export.csv"
+        },
+        {
+          "role": "reference",
+          "path": "brightwater/expense_register.xlsx"
+        }
+      ]
     }
   ]
 }

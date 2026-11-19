@@ -31,6 +31,7 @@ from .ingestion import (
     store_upload,
     suggest_mapping,
 )
+from .labels import FILE_STATUS_LABELS, labels_for
 from .matching import STATUS_ISSUES, match_records
 from .normalization import DATE_ORDER_LABELS, DATE_ORDERS
 from .settings import Settings
@@ -53,6 +54,11 @@ class ServiceError(Exception):
 
 class NotFound(ServiceError):
     status_code = 404
+
+
+class Gone(ServiceError):
+    """The resource existed but its content was deliberately deleted."""
+    status_code = 410
 
 
 class Conflict(ServiceError):
@@ -116,6 +122,7 @@ def list_template_summaries() -> list[dict]:
             for i in t.pdf_layouts
         ]
         s["date_order_labels"] = DATE_ORDER_LABELS
+        s["labels"] = labels_for(t)
         out.append(s)
     return out
 
@@ -162,7 +169,10 @@ def batch_counts(conn, batch_id: int) -> dict:
     invoices = [r for r in recs if r["role"] == "invoice"]
     references = [r for r in recs if r["role"] == "reference"]
     decided = sum(1 for r in invoices if r["review_status"] in ("approved", "excluded"))
+    gaps = import_gaps(conn, batch_id)
+    active_files = sum(n for status, n in file_counts.items() if status != "removed")
     return {
+        "completeness": {"complete": active_files > 0 and not gaps, "gaps": gaps},
         "files": {"total": len(files), **file_counts},
         "invoices": len(invoices),
         "references": len(references),
@@ -177,6 +187,17 @@ def batch_counts(conn, batch_id: int) -> dict:
         "needs_mapping": file_counts.get("needs_mapping", 0),
         "pending_files": file_counts.get("uploaded", 0) + file_counts.get("ready", 0),
     }
+
+
+def import_gaps(conn, batch_id: int) -> list[dict]:
+    """Files whose contents are not (fully) in the batch. Removed files are a reviewer decision, not a gap."""
+    pending = {"needs_mapping": "Waiting for a column mapping.", "uploaded": "Not processed yet.",
+               "ready": "Mapping confirmed but not processed yet."}
+    rows = conn.execute("SELECT id, original_name, role, status, status_detail FROM files WHERE batch_id=? "
+                        "AND status NOT IN ('processed', 'removed') ORDER BY id", (batch_id,)).fetchall()
+    return [{"file_id": r["id"], "file_name": r["original_name"], "role": r["role"], "status": r["status"],
+             "status_label": FILE_STATUS_LABELS.get(r["status"], r["status"]),
+             "reason": pending.get(r["status"]) or r["status_detail"] or "Rejected."} for r in rows]
 
 
 def list_batches(conn) -> list[dict]:
@@ -255,7 +276,8 @@ def add_file(conn, settings: Settings, batch_id: int, role: str, filename: str, 
     file_id = int(cur.lastrowid)
     if kind in ("csv", "xlsx") and not reason:
         try:
-            table = read_table(resolve_stored(settings.uploads_dir, stored), kind, template)
+            table = read_table(resolve_stored(settings.uploads_dir, stored), kind, template,
+                               max_rows=settings.max_spreadsheet_rows)
             if not table.headers or not table.rows:
                 raise IngestionError("The spreadsheet has no data rows.")
             conn.execute("UPDATE files SET sheet_name=?, header_row=?, date_order=? WHERE id=?",
@@ -284,6 +306,9 @@ def add_file(conn, settings: Settings, batch_id: int, role: str, filename: str, 
 
 def stored_path(conn, settings: Settings, file_id: int) -> tuple[Path, sqlite3.Row]:
     f = _file_row(conn, file_id)
+    if f["status"] == "removed":
+        raise Gone(f"This file was removed on {f['removed_at'] or 'an earlier date'}. Its stored copy and "
+                   "extracted text were deleted.")
     if not f["stored_name"]:
         raise NotFound("This file was not stored (it was rejected before storage).")
     path = resolve_stored(settings.uploads_dir, f["stored_name"])
@@ -293,7 +318,9 @@ def stored_path(conn, settings: Settings, file_id: int) -> tuple[Path, sqlite3.R
 
 
 def file_pages(conn, file_id: int) -> list[dict]:
-    _file_row(conn, file_id)
+    f = _file_row(conn, file_id)
+    if f["status"] == "removed":
+        raise Gone("This file was removed. Its extracted text was deleted.")
     rows = conn.execute("SELECT page_no, text FROM file_pages WHERE file_id=? ORDER BY page_no", (file_id,)).fetchall()
     return [dict(r) for r in rows]
 
@@ -331,7 +358,8 @@ def file_preview(conn, settings: Settings, file_id: int, sheet: str | None = Non
     use_sheet = sheet if sheet is not None else f["sheet_name"]
     use_header = header_row if header_row is not None else (f["header_row"] if sheet is None else None)
     try:
-        table = read_table(path, f["kind"], template, sheet=use_sheet, header_row=use_header)
+        table = read_table(path, f["kind"], template, sheet=use_sheet, header_row=use_header,
+                           max_rows=settings.max_spreadsheet_rows)
     except IngestionError as exc:
         raise ServiceError(str(exc)) from exc
     suggestions = suggest_mapping(table.headers, template)
@@ -386,7 +414,10 @@ def confirm_mapping(conn, settings: Settings, file_id: int, *, sheet: str | None
     if date_order not in DATE_ORDERS:
         raise ServiceError(f"Unknown date format '{date_order}'.")
     default_currency = (default_currency or "").strip().upper() or None
-    table = read_table(path, f["kind"], template, sheet=sheet, header_row=header_row)
+    table = read_table(path, f["kind"], template, sheet=sheet, header_row=header_row,
+                       max_rows=settings.max_spreadsheet_rows)
+    if table.over_limit:
+        raise ServiceError(table.notes[0])
     clean = {k: (v or None) for k, v in mapping.items()}
     for fd in template.fields:
         clean.setdefault(fd.name, None)
@@ -424,15 +455,41 @@ def confirm_mapping(conn, settings: Settings, file_id: int, *, sheet: str | None
     return _file_dict(_file_row(conn, file_id))
 
 
-def remove_file(conn, file_id: int, actor: str = "reviewer") -> None:
+def remove_file(conn, settings: Settings, file_id: int, actor: str = "reviewer") -> None:
+    """Remove a file from its batch.
+
+    Deleted: the stored copy on disk, the extracted page text, the records read from the file
+    (with their issues and manual links), and field values copied from it into the history.
+    Kept: one row that accounts for the upload (name, role, size, SHA-256, upload and removal
+    times) and the history actions themselves (who did what, when, and their notes).
+    Everything happens in one transaction; if the stored copy can't be deleted, nothing changes.
+    """
     f = _file_row(conn, file_id)
     if f["status"] == "removed":
         return
+    record_ids = [r["id"] for r in conn.execute("SELECT id FROM records WHERE file_id=?", (file_id,)).fetchall()]
+    if record_ids:
+        marks = ",".join("?" * len(record_ids))
+        conn.execute(f"UPDATE history SET old_value=NULL, new_value=NULL WHERE record_id IN ({marks}) "
+                     "AND action IN ('corrected', 'correction_reverted')", record_ids)
     conn.execute("DELETE FROM records WHERE file_id=?", (file_id,))
-    conn.execute("UPDATE files SET status='removed', record_count=0, "
-                 "status_detail='Removed by a reviewer; its records were deleted.' WHERE id=?", (file_id,))
-    log_history(conn, f["batch_id"], "file_removed", actor=actor, file_id=file_id, note=f["original_name"])
+    conn.execute("DELETE FROM file_pages WHERE file_id=?", (file_id,))
+    ts = now_iso()
+    conn.execute("UPDATE files SET status='removed', record_count=0, stored_name=NULL, removed_at=?, status_detail=? "
+                 "WHERE id=?", (ts, f"Removed by a reviewer. Stored copy, extracted text and {len(record_ids)} "
+                                    "record(s) deleted.", file_id))
+    log_history(conn, f["batch_id"], "file_removed", actor=actor, file_id=file_id,
+                note=f"{f['original_name']}: stored copy, extracted text and {len(record_ids)} record(s) deleted")
     recompute_batch(conn, f["batch_id"], actor="system", reason=f"file {f['original_name']} removed")
+    if f["stored_name"]:
+        path = resolve_stored(settings.uploads_dir, f["stored_name"])
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise Conflict("The stored copy could not be deleted (it may be open in another program). "
+                           "Nothing was removed; close it and try again.") from exc
 
 
 # ---------------------------------------------------------------- processing
@@ -488,9 +545,14 @@ def _process_sheet(conn, settings: Settings, f: sqlite3.Row, template: Template)
     path = resolve_stored(settings.uploads_dir, f["stored_name"])
     mapping: dict[str, str | None] = loads(f["mapping_json"], {})
     try:
-        table = read_table(path, f["kind"], template, sheet=f["sheet_name"], header_row=f["header_row"])
+        table = read_table(path, f["kind"], template, sheet=f["sheet_name"], header_row=f["header_row"],
+                           max_rows=settings.max_spreadsheet_rows)
     except IngestionError as exc:
         _reject(conn, f["id"], "unreadable", str(exc))
+        return
+    if table.over_limit:
+        # All or nothing: a partial import would look like a complete reconciliation.
+        _reject(conn, f["id"], "too_many_rows", table.notes[0])
         return
     index = {h: i for i, h in enumerate(table.headers)}
     missing_cols = [c for c in mapping.values() if c and c not in index]
@@ -523,9 +585,7 @@ def _process_sheet(conn, settings: Settings, f: sqlite3.Row, template: Template)
                        method=method, date_order=f["date_order"] or template.dates.default_order,
                        extracted=extracted, row=row_no, cells=cell_map, notes=notes)
         count += 1
-    detail = f"{count} rows imported" + (f" from sheet '{table.sheet}'" if table.sheet else "")
-    if table.truncated:
-        detail += " (row limit reached; later rows were not imported)"
+    detail = f"All {count} data rows imported" + (f" from sheet '{table.sheet}'" if table.sheet else "")
     conn.execute("UPDATE files SET status='processed', record_count=?, status_detail=?, processed_at=? WHERE id=?",
                  (count, detail, now_iso(), f["id"]))
 
@@ -570,10 +630,54 @@ def _build_inputs(conn, batch_id: int) -> tuple[list[RecordInput], dict[int, sql
     return inputs, {r["id"]: r for r in rows}
 
 
-def _issue_signature(conn, record_id: int) -> tuple:
-    rows = conn.execute("SELECT category, field, rule_id FROM issues WHERE record_id=? ORDER BY category, field, rule_id",
-                        (record_id,)).fetchall()
-    return tuple((r["category"], r["field"], r["rule_id"]) for r in rows)
+def _approval_basis(conn, record_id: int) -> dict:
+    """Everything a reviewer saw when approving: outcome, pairing, comparison values, explanation, issues.
+
+    Advisory hints are left out on purpose; they never change an outcome.
+    """
+    r = conn.execute("SELECT match_status, partner_id, validation_status, match_json FROM records WHERE id=?",
+                     (record_id,)).fetchone()
+    match = loads(r["match_json"], {}) or {}
+    issues = conn.execute("SELECT category, field, rule_id, severity, message FROM issues WHERE record_id=? "
+                          "ORDER BY category, field, rule_id, message", (record_id,)).fetchall()
+    return {
+        "match_status": r["match_status"],
+        "partner_id": r["partner_id"],
+        "validation_status": r["validation_status"],
+        "method": match.get("method"),
+        "explanation": list(match.get("explanation") or []),
+        "comparisons": [(c.get("field"), c.get("label"), c.get("record_value"), c.get("reference_value"), c.get("status"))
+                        for c in match.get("comparisons") or []],
+        "candidates": sorted(match.get("candidates") or []),
+        "issues": [(i["category"], i["field"], i["rule_id"], i["severity"], i["message"]) for i in issues],
+    }
+
+
+def _describe_basis_change(before: dict, after: dict, labels: dict) -> str:
+    ms = labels["match_status"]
+    parts: list[str] = []
+    if before["match_status"] != after["match_status"]:
+        parts.append(f"the match status changed from {ms.get(before['match_status'], before['match_status'])} "
+                     f"to {ms.get(after['match_status'], after['match_status'])}")
+    if before["partner_id"] != after["partner_id"]:
+        parts.append(f"it is now paired with record #{after['partner_id']}" if after["partner_id"]
+                     else f"it is no longer paired with record #{before['partner_id']}")
+    old_cmp = {c[0]: c for c in before["comparisons"]}
+    for c in after["comparisons"]:
+        o = old_cmp.get(c[0])
+        if o and o[2:] != c[2:]:
+            parts.append(f"{c[1].lower()} comparison changed from {o[2]} vs {o[3]} to {c[2]} vs {c[3]}")
+    if before["validation_status"] != after["validation_status"]:
+        parts.append(f"its checks changed from {before['validation_status']} to {after['validation_status']}")
+    added = [i[4] for i in after["issues"] if i not in before["issues"]]
+    resolved = [i[4] for i in before["issues"] if i not in after["issues"]]
+    if added and not parts:
+        parts.append("new or changed issue: " + " / ".join(added[:2]))
+    elif resolved and not added and not parts:
+        parts.append("an issue was resolved: " + " / ".join(resolved[:2]))
+    if not parts:
+        parts.append("the matching explanation changed")
+    return "; ".join(parts)
 
 
 def recompute_batch(conn, batch_id: int, *, actor: str, reason: str, changed_record_ids: set[int] | None = None) -> dict:
@@ -586,13 +690,15 @@ def recompute_batch(conn, batch_id: int, *, actor: str, reason: str, changed_rec
     template = _template_for_batch(batch)
     changed_record_ids = changed_record_ids or set()
     inputs, rows = _build_inputs(conn, batch_id)
-    before = {rid: (r["match_status"], r["partner_id"], r["validation_status"], _issue_signature(conn, rid))
-              for rid, r in rows.items()}
+    before = {rid: _approval_basis(conn, rid) for rid, r in rows.items() if r["review_status"] == "approved"}
     evaluated = evaluate_batch(inputs, template)
     links = {r["record_id"]: r["reference_id"] for r in conn.execute(
         "SELECT ml.record_id, ml.reference_id FROM manual_links ml JOIN records r ON r.id=ml.record_id "
         "WHERE r.batch_id=?", (batch_id,)).fetchall()}
-    results, dropped = match_records(evaluated, template, links)
+    gaps: dict[str, list[str]] = {}
+    for g in import_gaps(conn, batch_id):
+        gaps.setdefault(g["role"], []).append(g["file_name"])
+    results, dropped = match_records(evaluated, template, links, gaps)
     for inv_id, ref_id, why in dropped:
         conn.execute("DELETE FROM manual_links WHERE record_id=?", (inv_id,))
         if inv_id in rows:
@@ -620,15 +726,15 @@ def recompute_batch(conn, batch_id: int, *, actor: str, reason: str, changed_rec
                          (batch_id, ev.id, "matching", issue[0], "matching", None, issue[1],
                           " ".join(result.explanation)))
     withdrawn = []
+    labels = labels_for(template)
     for ev in evaluated:
         row = rows[ev.id]
         if row["review_status"] != "approved":
             continue
-        result = results[ev.id]
-        after = (result.status, result.partner_id, ev.validation_status, _issue_signature(conn, ev.id))
+        after = _approval_basis(conn, ev.id)
         if ev.id in changed_record_ids or after != before[ev.id]:
             why = ("its values were corrected" if ev.id in changed_record_ids
-                   else f"its checks or matching result changed ({reason})")
+                   else f"{_describe_basis_change(before[ev.id], after, labels)} ({reason})")
             conn.execute("UPDATE records SET review_status='awaiting_review', review_reason=NULL, reviewed_at=NULL, "
                          "updated_at=? WHERE id=?", (ts, ev.id))
             log_history(conn, batch_id, "approval_withdrawn", actor="system", record_id=ev.id,

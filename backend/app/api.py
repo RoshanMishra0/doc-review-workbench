@@ -196,8 +196,8 @@ def confirm_mapping(file_id: int, body: MappingBody, conn=Depends(get_conn), set
 
 
 @router.delete("/files/{file_id}", status_code=204)
-def remove_file(file_id: int, conn=Depends(get_conn)):
-    services.remove_file(conn, file_id)
+def remove_file(file_id: int, conn=Depends(get_conn), settings: Settings = Depends(get_settings)):
+    services.remove_file(conn, settings, file_id)
     return Response(status_code=204)
 
 

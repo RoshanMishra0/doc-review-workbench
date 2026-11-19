@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
-import { ErrorBanner, MetaContext, Spinner } from "./components";
+import { ErrorBanner, MetaContext, Notice, Spinner, roleWords, useMeta } from "./components";
 import { navigate, useRoute } from "./router";
 import type { BatchDetail, Meta } from "./types";
 import BatchList from "./views/BatchList";
@@ -66,6 +66,7 @@ export default function App() {
 }
 
 function BatchShell({ batchId, tab, recordId, query }: { batchId: number; tab: string; recordId: number | null; query: URLSearchParams }) {
+  const meta = useMeta();
   const [batch, setBatch] = useState<BatchDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -105,6 +106,9 @@ function BatchShell({ batchId, tab, recordId, query }: { batchId: number; tab: s
   if (!batch) return <Spinner label="Loading batch" />;
 
   const active = tab === "records" && recordId ? "review" : tab;
+  const template = meta.templates.find((t) => t.id === batch.template_id);
+  const w = template ? roleWords(template) : null;
+  const gaps = batch.counts.completeness.gaps;
   return (
     <div className="page">
       <div className="batch-head">
@@ -116,7 +120,8 @@ function BatchShell({ batchId, tab, recordId, query }: { batchId: number; tab: s
             {batch.name} {batch.sample_id && <span className="tag tag-synthetic">Synthetic demo data</span>}
           </h1>
           <div className="muted small">
-            {batch.template_name} · v{batch.template_version} · {batch.counts.invoices} invoices · {batch.counts.references} register rows ·{" "}
+            {batch.template_name} · v{batch.template_version} ·{" "}
+            {w ? `${w.count(batch.counts.invoices, w.rec)} · ${w.count(batch.counts.references, w.refRow)}` : ""} ·{" "}
             {batch.counts.files.total} files
           </div>
         </div>
@@ -141,6 +146,14 @@ function BatchShell({ batchId, tab, recordId, query }: { batchId: number; tab: s
         })}
       </nav>
       {error && <ErrorBanner error={error} onRetry={refresh} onDismiss={() => setError(null)} />}
+      {gaps.length > 0 && (
+        <Notice tone="warn">
+          <strong>Results are incomplete: not every file is fully imported.</strong>{" "}
+          {gaps.map((g) => `${g.file_name} (${g.status_label.toLowerCase()})`).join(", ")}. Matches and exceptions only cover
+          what was imported.{" "}
+          {active !== "import" && <a href={`#/batches/${batchId}/import`}>See files</a>}
+        </Notice>
+      )}
       {active === "import" && <ImportView batch={batch} onChanged={refresh} />}
       {active === "records" && <RecordsView batch={batch} query={query} />}
       {active === "review" && <ReviewView batch={batch} recordId={recordId} query={query} onChanged={refresh} />}

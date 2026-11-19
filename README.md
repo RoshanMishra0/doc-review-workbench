@@ -2,9 +2,12 @@
 
 A local web app that turns business documents and spreadsheets into structured records, checks them against configurable rules, compares them with a reference spreadsheet, and gives a person a clear queue to correct, approve or exclude records before exporting the result to Excel.
 
-The first workflow template is **supplier invoices vs a purchase register**:
+Two workflow templates ship with it, both selectable in the **New batch** dialog:
 
-> upload invoices (PDF, CSV or XLSX) and the purchase register → extract invoice header fields → validate → match conservatively against the register → review and correct → export an XLSX review workbook.
+- **Supplier invoices vs purchase register**: upload invoices (PDF, CSV or XLSX) and the purchase register → extract invoice header fields → validate → match conservatively against the register → review and correct → export an XLSX review workbook.
+- **Expense claims vs expense register**: upload a claims export and finance's expense register (CSV or XLSX) → the same checks, matching, review and export, driven by a different template file.
+
+What changed between versions is in [CHANGELOG.md](CHANGELOG.md).
 
 Status: a working first version for demos and paid pilots on synthetic or carefully chosen data. It is **not production-ready**: there is no login, it is single-user, and it has only been tested on the synthetic data in this repository.
 
@@ -15,9 +18,11 @@ Status: a working first version for demos and paid pilots on synthetic or carefu
 - [Setup and run on macOS or Linux](#setup-and-run-on-macos-or-linux)
 - [Development mode](#development-mode)
 - [Tests](#tests)
+- [Continuous integration](#continuous-integration)
 - [Sample data](#sample-data)
 - [How it works](#how-it-works)
 - [Supported inputs](#supported-inputs)
+- [Data retention and deletion](#data-retention-and-deletion)
 - [Known limitations](#known-limitations)
 - [Implemented vs proposed](#implemented-vs-proposed)
 - Other docs: [Template configuration guide](docs/TEMPLATE_GUIDE.md), [Three-minute demo script](docs/DEMO_SCRIPT.md), [Sample data and expected outcomes](sample_data/README.md)
@@ -104,9 +109,18 @@ cd backend
 .\.venv\Scripts\python -m pytest
 ```
 
-92 tests cover the behaviour that could produce a wrong business result: column mapping with different headings, leading zeros, date parsing and ambiguous dates, Decimal arithmetic and tolerance boundaries, duplicate detection, equal amounts that must not match, ambiguous register rows, unmatched records on both sides, unsupported/image-only/damaged PDFs, correction followed by revalidation and rematching, approvals withdrawn by corrections, persistence across a restart, export agreeing with the reviewed records, formula-safe export, invalid template configurations, a second differently shaped template (expense claims) running through the same code, and an end-to-end run of both sample datasets against their documented expected outcomes.
+113 tests cover the behaviour that could produce a wrong business result: column mapping with different headings, leading zeros, date parsing and ambiguous dates, Decimal arithmetic and tolerance boundaries, duplicate detection, equal amounts that must not match, ambiguous register rows, unmatched records on both sides, unsupported/image-only/damaged PDFs, correction followed by revalidation and rematching, approvals withdrawn when anything they were based on changes (including a counterpart's values while the status stays the same), file removal deleting stored bytes and extracted text, the spreadsheet row limit at and just over the boundary, schema migration of an older database, persistence across a restart, export agreeing with the reviewed records, formula-safe export, invalid template configurations, the shipped expense-claims template, a custom template folder, and an end-to-end run of all three sample datasets against their documented expected outcomes.
 
 Frontend type-check and build: `cd frontend; npm run build`.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main`, on pull requests and on demand. It has two jobs on `ubuntu-latest`:
+
+- **Backend**: Python 3.14, `pip install -r requirements-dev.txt`, `pytest`.
+- **Frontend**: Node 24, `npm ci` from the lockfile, `npm run build` (TypeScript type-check, then the production build).
+
+Only Python 3.14 is tested, because that's the version verified locally.
 
 ## Sample data
 
@@ -115,7 +129,8 @@ All sample data is synthetic: fictional companies, addresses, tax IDs and amount
 - In the app, press **Load sample dataset** on the Batches page and choose a set. The loader reads the committed files from `sample_data/` and passes them through the same upload, mapping and processing code as a manual upload.
   - **Harbor Lane Supplies**: 18 invoice PDFs in three layouts plus an XLSX purchase register. Processes fully on load.
   - **Meridian Workshop Services**: a CSV invoice listing and a CSV register with different headings. The register stops at column mapping on purpose: map **Party** to Supplier name, **Doc Total** to Total amount, and choose **MM/DD/YYYY** as the date format. If you save the mapping, the next load of this sample applies it automatically.
-- To regenerate the files: `backend\.venv\Scripts\python sample_data\generate_samples.py` (run from the repository root).
+  - **Brightwater Design Studio expenses** (expense-claims template): 12 claims exported as CSV and finance's expense register as XLSX. Processes fully on load.
+- To regenerate the files: `backend\.venv\Scripts\python sample_data\generate_samples.py` (run from the repository root). Two runs produce byte-identical files.
 - Every scenario and its expected result is documented in [sample_data/README.md](sample_data/README.md).
 
 ## How it works
@@ -145,6 +160,8 @@ Backend modules (`backend/app/`):
 
 Storage: one SQLite file (`workbench.db`) with batches, files, PDF page text, records, issues, manual links, mapping profiles and a history table. Uploaded files are stored once under generated names in `data/uploads/batch_<id>/` and never modified. Extracted values are stored exactly as read; corrections are stored separately, so the original value is always available.
 
+A batch is **complete** only when every file in it that wasn't removed is fully imported. While a file is waiting for a mapping, not processed, or rejected, every batch page shows a warning naming it, and the export's Summary sheet says "Inputs fully imported: NO" and lists it. Each "missing from register" or "register row without invoice" result also says that a file on the other side wasn't imported, so those exceptions can't be read as final.
+
 Processing outcomes and review decisions are separate. A record has a validation status (checks passed / passed with warnings / failed checks), a match status, and a review status (awaiting review / approved / excluded). A record can be "Matched" and still "Awaiting review".
 
 Frontend (`frontend/src/`): React + TypeScript, no UI framework. Views: Batches, Import (upload, template details, column mapping), Records (filters and search), Review (fields, checks, matching, decision, history, source evidence), Export.
@@ -155,8 +172,23 @@ Frontend (`frontend/src/`): React + TypeScript, no UI framework. Views: Batches,
 - **CSV** in UTF-8 (with or without BOM) or Windows-1252, delimiter detected among comma, semicolon, tab and pipe.
 - **XLSX** with worksheet selection and heading-row detection. Real date cells are read as dates. Values from formulas are read from the workbook's cached results.
 - 20 MB per file, 100 files per upload.
+- 20,000 data rows per spreadsheet. A sheet with more is refused at the mapping step and rejected at processing; it is **never imported in part**, because a partial register would look like a complete reconciliation. Split big files. Blank rows don't count. The limit can be changed with the `DRW_MAX_SHEET_ROWS` environment variable.
 
 Rejected with a reason and listed in the batch and the export: other file types, legacy `.xls`, empty files, password-protected PDFs, damaged PDFs, PDFs without a text layer (OCR is not supported), PDFs in other layouts, and PDFs uploaded as the register.
+
+## Data retention and deletion
+
+Everything stays on this computer, in the data folder (`backend\data` by default).
+
+| Situation | What is kept | What is deleted |
+| --- | --- | --- |
+| A file is processed or rejected | The stored copy (so you can open it and see why), its extracted text, its records and history | Nothing |
+| A file is too large (over 20 MB) | A row that accounts for the upload: name, size, reason | The bytes are never stored |
+| **Remove file** (Import tab) | One row that accounts for the upload: name, role, size, SHA-256, upload and removal times; the history actions (who did what, when, notes) | The stored copy on disk, the extracted page text, the records read from the file with their issues and manual links, and the field values from it in the history (old and new values of corrections are blanked). Opening the file afterwards returns 410 Gone. |
+| **Delete batch** (Batches page) | Nothing about that batch | All its rows in the database and its upload folder |
+| Saved column mappings | Kept until edited | Not deleted with a batch (they hold column headings, not data) |
+
+Removal happens in one transaction: if the stored copy can't be deleted (for example because another program has it open), nothing is removed and you're asked to try again. Your original files outside the app are never touched. SQLite may keep freed pages inside `workbench.db` until it is compacted; delete the data folder to remove every trace.
 
 ## Known limitations
 
@@ -189,7 +221,12 @@ Rejected with a reason and listed in the batch and the export: other file types,
 | History of extractions, corrections, decisions and system changes | Implemented |
 | XLSX export with seven sheets, formula-safe text, numeric amounts and real dates | Implemented |
 | Synthetic dataset generator, committed fixtures and documented expected outcomes | Implemented |
-| Second template (for example expense-register validation) | Proposed. The template and extractor structure is ready for it; no second template exists yet. |
+| Second template: expense claims vs expense register (spreadsheets), with synthetic samples | Implemented |
+| Batch completeness: warning, export summary and qualified "not found" results when a file isn't fully imported | Implemented |
+| All-or-nothing spreadsheet import with a configurable row limit | Implemented |
+| Remove file deletes stored bytes, extracted text and copied values; 410 Gone afterwards | Implemented |
+| GitHub Actions CI (backend tests, frontend type-check and build) | Implemented |
+| Third template (for example bank statement vs ledger) | Proposed |
 | Template and alias editing in the UI, per-business settings | Proposed |
 | AI/LLM extraction adapter behind the extractor interface | Proposed (optional, not started) |
 | OCR for scanned documents | Proposed |

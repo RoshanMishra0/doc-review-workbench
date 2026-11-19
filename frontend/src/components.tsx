@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import type { Tone } from "./format";
-import type { Meta } from "./types";
+import type { Meta, TemplateSummary } from "./types";
 
 export const MetaContext = createContext<Meta | null>(null);
 
@@ -8,6 +8,30 @@ export function useMeta(): Meta {
   const meta = useContext(MetaContext);
   if (!meta) throw new Error("Meta not loaded");
   return meta;
+}
+
+export function useTemplate(templateId: string): TemplateSummary {
+  const meta = useMeta();
+  const t = meta.templates.find((x) => x.id === templateId);
+  if (!t) throw new Error(`Template ${templateId} is not installed`);
+  return t;
+}
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Role wording from the template: "invoice"/"register row" for invoices, "claim"/"register row" for expenses. */
+export function roleWords(t: TemplateSummary) {
+  const rec = t.roles.invoice.label.toLowerCase();
+  const refRow = t.roles.reference.label.toLowerCase();
+  return {
+    rec,
+    Rec: cap(rec),
+    recs: t.roles.invoice.plural.toLowerCase(),
+    refRow,
+    RefRow: cap(refRow),
+    ref: t.roles.reference.plural.toLowerCase(),
+    count: (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`,
+  };
 }
 
 export function Badge({ tone = "neutral", children, title }: { tone?: Tone; children: ReactNode; title?: string }) {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Card, ErrorBanner, Notice, Spinner } from "../components";
+import { Card, ErrorBanner, Notice, Spinner, roleWords, useTemplate } from "../components";
 import type { BatchDetail, RecordSummary } from "../types";
 
 export default function ExportView({ batch, onRefresh }: { batch: BatchDetail; onRefresh: () => Promise<unknown> }) {
@@ -51,6 +51,7 @@ export default function ExportView({ batch, onRefresh }: { batch: BatchDetail; o
   };
 
   const c = batch.counts;
+  const w = roleWords(useTemplate(batch.template_id));
   const approved = records?.filter((r) => r.review_status === "approved").length ?? 0;
   const exceptions = records?.filter((r) => r.review_status === "awaiting_review").reduce((n, r) => n + r.issue_count, 0) ?? 0;
   const unmatchedRefs =
@@ -76,8 +77,14 @@ export default function ExportView({ batch, onRefresh }: { batch: BatchDetail; o
         {done && <Notice tone="good">Downloaded {done}.</Notice>}
         {c.review.awaiting_review > 0 && (
           <Notice tone="warn">
-            {c.review.awaiting_review} invoice{c.review.awaiting_review === 1 ? " is" : "s are"} still awaiting review. You can export now; they appear
+            {w.count(c.review.awaiting_review, w.rec)} {c.review.awaiting_review === 1 ? "is" : "are"} still awaiting review. You can export now; they appear
             as outstanding.
+          </Notice>
+        )}
+        {!c.completeness.complete && c.completeness.gaps.length > 0 && (
+          <Notice tone="warn">
+            The workbook's Summary sheet will say the inputs are not fully imported and list these files. Their contents are not in the
+            export.
           </Notice>
         )}
         {c.needs_mapping > 0 && <Notice tone="warn">{c.needs_mapping} spreadsheet(s) still need a column mapping and are not in the export yet.</Notice>}
@@ -100,7 +107,7 @@ export default function ExportView({ batch, onRefresh }: { batch: BatchDetail; o
               </tr>
               <tr>
                 <td className="strong">All records</td>
-                <td>Every invoice and register row with current values, statuses and explanations</td>
+                <td>Every {w.rec} and {w.refRow} with current values, statuses and explanations</td>
                 <td className="num">{records.length}</td>
               </tr>
               <tr>
@@ -114,8 +121,8 @@ export default function ExportView({ batch, onRefresh }: { batch: BatchDetail; o
                 <td className="num">{exceptions}</td>
               </tr>
               <tr>
-                <td className="strong">Unmatched register rows</td>
-                <td>Register rows without a single paired invoice</td>
+                <td className="strong">Unmatched {w.refRow}s</td>
+                <td>{w.RefRow}s without a single paired {w.rec}</td>
                 <td className="num">{unmatchedRefs}</td>
               </tr>
               <tr>

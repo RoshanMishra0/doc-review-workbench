@@ -223,7 +223,34 @@ class Matcher:
         return hints
 
     # -------------------------------------------------------------- main
-    def run(self, records: list[EvaluatedRecord], links: dict[int, int]):
+    def run(self, records: list[EvaluatedRecord], links: dict[int, int],
+            gaps: dict[str, list[str]] | None = None):
+        results = self._run(records, links)
+        self._qualify(results[0], records, gaps or {})
+        return results
+
+    def _qualify(self, results: dict[int, MatchResult], records: list[EvaluatedRecord],
+                 gaps: dict[str, list[str]]) -> None:
+        """Say so when a "not found" result may only be because a file on the other side wasn't imported."""
+        def names(files: list[str]) -> str:
+            shown = files[:3] + ([f"{len(files) - 3} more"] if len(files) > 3 else [])
+            return _join(shown)
+
+        ref_gap, inv_gap = gaps.get("reference") or [], gaps.get("invoice") or []
+        for r in records:
+            res = results.get(r.id)
+            if res is None:
+                continue
+            if r.role == "invoice" and ref_gap and (res.status == "missing_from_reference" or res.no_reference_rows):
+                res.explanation.append(
+                    f"Not every {self.ref_label} file is fully imported ({names(ref_gap)}), so the matching row "
+                    f"may be in a file that was not imported.")
+            elif r.role == "reference" and inv_gap and res.status == "no_invoice":
+                res.explanation.append(
+                    f"Not every {self.inv_label} file is fully imported ({names(inv_gap)}), so a matching "
+                    f"{self.inv_label} may be in a file that was not imported.")
+
+    def _run(self, records: list[EvaluatedRecord], links: dict[int, int]):
         results: dict[int, MatchResult] = {}
         dropped: list[tuple[int, int, str]] = []
         by_id = {r.id: r for r in records}
@@ -339,5 +366,6 @@ class Matcher:
         return results, dropped
 
 
-def match_records(records: list[EvaluatedRecord], template: Template, links: dict[int, int]):
-    return Matcher(template).run(records, links)
+def match_records(records: list[EvaluatedRecord], template: Template, links: dict[int, int],
+                  gaps: dict[str, list[str]] | None = None):
+    return Matcher(template).run(records, links, gaps)

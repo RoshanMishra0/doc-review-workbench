@@ -177,3 +177,26 @@ def test_delete_batch_removes_its_records_and_files(client, data_dir):
     assert client.delete(f"/api/batches/{b}").status_code == 204
     assert client.get(f"/api/batches/{b}").status_code == 404
     assert not (data_dir / "uploads" / f"batch_{b}").exists()
+
+
+def test_counterpart_change_withdraws_approval_when_status_stays_mismatched(client):
+    """Regression: a material change to the comparison must withdraw an approval even if the
+    match status (mismatched) and the issue categories stay the same."""
+    b = load_harbor(client)
+    inv = find(records_by(client, b), file_name="apex_INV-00131.pdf")
+    assert inv["match_status"] == "mismatched" and inv["categories"] == ["mismatch"]
+    ref_id = inv["partner_id"]
+    r = client.post(f"/api/records/{inv['id']}/approve", json={"note": "Supplier confirmed the register is wrong"})
+    assert r.status_code == 200 and r.json()["review_status"] == "approved"
+
+    # The register row's total changes from 12,050.00 to 12,060.00. The pair is still mismatched.
+    r = client.post(f"/api/records/{ref_id}/corrections", json={"values": {"total_amount": "12,060.00"}})
+    assert r.status_code == 200
+    after = client.get(f"/api/records/{inv['id']}").json()
+    assert after["match_status"] == "mismatched"
+    assert after["categories"] == ["mismatch"]
+    total = next(c for c in after["match"]["comparisons"] if c["field"] == "total_amount")
+    assert total["reference_value"] == "₹12,060.00"
+    assert after["review_status"] == "awaiting_review"
+    withdrawn = [h for h in after["history"] if h["action"] == "approval_withdrawn"]
+    assert withdrawn and "12,060.00" in withdrawn[-1]["note"]

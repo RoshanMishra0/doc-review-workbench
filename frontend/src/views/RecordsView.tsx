@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { Badge, Card, EmptyState, ErrorBanner, Spinner, useMeta } from "../components";
+import { Badge, Card, EmptyState, ErrorBanner, Spinner, roleWords, useMeta } from "../components";
 import { label, matchTone, reviewTone, validationTone } from "../format";
 import { navigate, withQuery } from "../router";
 import type { BatchDetail, RecordSummary } from "../types";
@@ -30,6 +30,8 @@ export default function RecordsView({ batch, query }: { batch: BatchDetail; quer
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState(filters.q ?? "");
   const template = meta.templates.find((t) => t.id === batch.template_id)!;
+  const labels = template.labels;
+  const w = roleWords(template);
   const key = JSON.stringify(filters);
 
   const load = useCallback(() => {
@@ -56,8 +58,8 @@ export default function RecordsView({ batch, query }: { batch: BatchDetail; quer
     ? ["matched", "mismatched", "no_invoice", "ambiguous", "invalid", "partner_invalid", "not_compared"]
     : role === "invoice"
       ? ["matched", "mismatched", "missing_from_reference", "ambiguous", "invalid", "not_compared"]
-      : Object.keys(meta.labels.match_status);
-  const categories = Object.keys(meta.labels.category).filter((c) => c !== "other");
+      : Object.keys(labels.match_status);
+  const categories = Object.keys(labels.category).filter((c) => c !== "other");
   const total = batch.counts.invoices + batch.counts.references;
   const fieldType = (name: string) => template.fields.find((f) => f.name === name)?.type;
   const isMoney = (name: string) => fieldType(name) === "money";
@@ -70,7 +72,7 @@ export default function RecordsView({ batch, query }: { batch: BatchDetail; quer
       {role && total > 0 && (
         <div className="chips">
           <button className={`chip-btn ${!filters.match_status ? "active" : ""}`} onClick={() => setFilter("match_status", "")}>
-            All {role === "invoice" ? "invoices" : "register rows"}{" "}
+            All {role === "invoice" ? `${w.rec}s` : `${w.refRow}s`}{" "}
             <span className="count">{role === "invoice" ? batch.counts.invoices : batch.counts.references}</span>
           </button>
           {statusOptions
@@ -81,7 +83,7 @@ export default function RecordsView({ batch, query }: { batch: BatchDetail; quer
                 className={`chip-btn tone-${matchTone(s)} ${filters.match_status === s ? "active" : ""}`}
                 onClick={() => setFilter("match_status", filters.match_status === s ? "" : s)}
               >
-                {label(meta.labels, "match_status", s)} <span className="count">{counts[s]}</span>
+                {label(labels, "match_status", s)} <span className="count">{counts[s]}</span>
               </button>
             ))}
         </div>
@@ -102,7 +104,7 @@ export default function RecordsView({ batch, query }: { batch: BatchDetail; quer
               <option value="">Any</option>
               {statusOptions.map((s) => (
                 <option key={s} value={s}>
-                  {label(meta.labels, "match_status", s)}
+                  {label(labels, "match_status", s)}
                 </option>
               ))}
             </select>
@@ -111,7 +113,7 @@ export default function RecordsView({ batch, query }: { batch: BatchDetail; quer
             <span>Checks</span>
             <select value={filters.validation_status ?? ""} onChange={(e) => setFilter("validation_status", e.target.value)}>
               <option value="">Any</option>
-              {Object.entries(meta.labels.validation_status).map(([k, v]) => (
+              {Object.entries(labels.validation_status).map(([k, v]) => (
                 <option key={k} value={k}>
                   {v}
                 </option>
@@ -124,7 +126,7 @@ export default function RecordsView({ batch, query }: { batch: BatchDetail; quer
               <option value="">Any</option>
               {categories.map((c) => (
                 <option key={c} value={c}>
-                  {label(meta.labels, "category", c)}
+                  {label(labels, "category", c)}
                 </option>
               ))}
             </select>
@@ -133,7 +135,7 @@ export default function RecordsView({ batch, query }: { batch: BatchDetail; quer
             <span>Review</span>
             <select value={filters.review_status ?? ""} onChange={(e) => setFilter("review_status", e.target.value)}>
               <option value="">Any</option>
-              {Object.entries(meta.labels.review_status).map(([k, v]) => (
+              {Object.entries(labels.review_status).map(([k, v]) => (
                 <option key={k} value={k}>
                   {v}
                 </option>
@@ -153,7 +155,7 @@ export default function RecordsView({ batch, query }: { batch: BatchDetail; quer
           >
             <input
               type="search"
-              placeholder="Search supplier, number, file, #id"
+              placeholder="Search names, references, files, #id"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               aria-label="Search records"
@@ -223,15 +225,15 @@ export default function RecordsView({ batch, query }: { batch: BatchDetail; quer
                       </td>
                     ))}
                     <td>
-                      <Badge tone={validationTone(r.validation_status)}>{label(meta.labels, "validation_status", r.validation_status)}</Badge>
+                      <Badge tone={validationTone(r.validation_status)}>{label(labels, "validation_status", r.validation_status)}</Badge>
                     </td>
                     <td>
                       <Badge tone={matchTone(r.match_status)} title={r.match_summary ?? undefined}>
-                        {label(meta.labels, "match_status", r.match_status)}
+                        {label(labels, "match_status", r.match_status)}
                       </Badge>
                     </td>
                     <td>
-                      <Badge tone={reviewTone(r.review_status)}>{label(meta.labels, "review_status", r.review_status)}</Badge>
+                      <Badge tone={reviewTone(r.review_status)}>{label(labels, "review_status", r.review_status)}</Badge>
                       {r.corrected && (
                         <>
                           {" "}
@@ -240,7 +242,7 @@ export default function RecordsView({ batch, query }: { batch: BatchDetail; quer
                       )}
                     </td>
                     <td className="small">
-                      {r.categories.length === 0 ? <span className="muted">None</span> : r.categories.map((c) => label(meta.labels, "category", c)).join(", ")}
+                      {r.categories.length === 0 ? <span className="muted">None</span> : r.categories.map((c) => label(labels, "category", c)).join(", ")}
                     </td>
                   </tr>
                 ))}

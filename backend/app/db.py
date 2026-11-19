@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS batches (
@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS files (
     mapping_profile_id INTEGER,
     record_count INTEGER NOT NULL DEFAULT 0,
     uploaded_at TEXT NOT NULL,
-    processed_at TEXT
+    processed_at TEXT,
+    removed_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_files_batch ON files(batch_id);
 
@@ -146,10 +147,18 @@ def init_db(path: Path) -> None:
     try:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(SCHEMA)
+        _migrate(conn)
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         conn.commit()
     finally:
         conn.close()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Bring a database created by an older version up to the current schema. Idempotent."""
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(files)")}
+    if "removed_at" not in columns:  # schema 1 -> 2
+        conn.execute("ALTER TABLE files ADD COLUMN removed_at TEXT")
 
 
 def connect(path: Path) -> sqlite3.Connection:
