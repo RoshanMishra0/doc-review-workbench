@@ -35,15 +35,15 @@ Tested with these versions. Nothing needs a paid API, a cloud account or an AI s
 | --- | --- |
 | Python | 3.14.3 (3.11 or later should work but was not tested) |
 | Node.js / npm | 24.14.0 / 11.12.0 (only needed to build the UI) |
-| FastAPI / Starlette / Uvicorn | 0.164.0 / 1.10.0 / 0.54.0 |
-| Pydantic | 2.14.3 |
+| FastAPI / Starlette / Uvicorn | 0.142.2 / 1.7.0 / 0.54.0 |
+| Pydantic | 2.13.5 |
 | openpyxl (XLSX) | 3.1.5 |
-| pypdf (PDF text) | 7.1.1 |
-| python-multipart | 0.0.34 |
-| pytest / httpx (tests) | 9.2.0 / 0.28.1 |
-| fpdf2 / Pillow (sample generator only) | 2.9.0 / 13.0.0 |
-| React / React DOM | 19.3.1 |
-| Vite / @vitejs/plugin-react | 8.3.8 / 6.3.0 |
+| pypdf (PDF text) | 6.19.0 |
+| python-multipart | 0.0.32 |
+| pytest / httpx (tests) | 9.1.1 / 0.28.1 |
+| fpdf2 / Pillow (sample generator only) | 2.8.9 / 12.3.0 |
+| React / React DOM | 19.3.0 |
+| Vite / @vitejs/plugin-react | 8.3.1 / 6.1.1 |
 | TypeScript | 7.0.2 |
 
 Exact pins are in `backend/requirements.txt`, `backend/requirements-dev.txt` and `frontend/package-lock.json`. SQLite comes with Python.

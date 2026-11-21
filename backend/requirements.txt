@@ -1,8 +1,8 @@
 # Runtime dependencies (versions installed and tested on Python 3.14.3, Windows 10)
-fastapi==0.164.0
-starlette==1.10.0
+fastapi==0.142.2
+starlette==1.7.0
 uvicorn==0.54.0
-python-multipart==0.0.34
-pydantic==2.14.3
+python-multipart==0.0.32
+pydantic==2.13.5
 openpyxl==3.1.5
-pypdf==7.1.1
+pypdf==6.19.0
